@@ -37,21 +37,21 @@ if __name__ == '__main__':
     eef_pose_kin = eu_arm_kin.MFK(q0)
     print(f'kin: {repr(eef_pose_kin)}, time: {time.time()-t0}')
 
-    # t0=time.time()
-    # eef_pose_rtb = eu_arm_rtb.fkine(q0).A
-    # print(f'rtb: {repr(eef_pose_rtb)}, time: {time.time()-t0}')
+    t0=time.time()
+    eef_pose_rtb = eu_arm_rtb.fkine(q0).A
+    print(f'rtb: {repr(eef_pose_rtb)}, time: {time.time()-t0}')
 
 
-    # eef_pose_kin[1,3] += 0.03
-    # eef_pose_rtb[1,3] += 0.03
+    eef_pose_kin[1,3] += 0.03
+    eef_pose_rtb[1,3] += 0.03
 
-    # t0=time.time()
-    # q1_kin = eu_arm_kin.MIK_from_T(eef_pose_kin, q0)
-    # print(f'q kin: {repr(q1_kin)}, time: {time.time()-t0}')
+    t0=time.time()
+    q1_kin = eu_arm_kin.MIK_from_T(eef_pose_kin, q0)
+    print(f'q kin: {repr(q1_kin)}, time: {time.time()-t0}')
 
-    # t0=time.time()
-    # q1_rtb = eu_arm_rtb.ikine_NR(eef_pose_rtb, q0=q0).q
-    # print(f'q rtb: {repr(q1_rtb)}, time: {time.time()-t0}')
+    t0=time.time()
+    q1_rtb = eu_arm_rtb.ikine_NR(eef_pose_rtb, q0=q0).q
+    print(f'q rtb: {repr(q1_rtb)}, time: {time.time()-t0}')
 
     # print(f'kin: {repr(eu_arm_kin.MFK(q1_kin))}')
     # print(f'rtb: {repr(eu_arm_rtb.fkine(q1_rtb).A)}')

@@ -122,7 +122,7 @@ class robot:
                 T = numpy.dot(T, self.MDH(self.A[k], self.ALPHA[k], self.D[k], self.THETA[k]+theta[k]))
             else:
                 T = numpy.dot(T, self.MDH(self.A[k], self.ALPHA[k], self.D[k]+theta[k], self.THETA[k]))
-            print(f'T[{k}] = \n{T}')
+            # print(f'T[{k}] = \n{T}')
         return T
 
     def MDK(self, theta):
@@ -166,6 +166,8 @@ class robot:
             return q_ans
         return q
 
+    from benchmark import benchmark
+    @benchmark
     def MIK_from_T(self, T_desired, q, iterate_times=100):
         Rt = T_desired[0:3, 0:3]
         Pt = T_desired[0:3, 3]
