@@ -3,7 +3,7 @@ from PyKDL import *
 import numpy as np
 from numpy import pi, sin, cos
 
-from benchmark import benchmark
+# from utils.benchmark import benchmark
 
 
 def create_kdl_chain(dh_params):
@@ -18,14 +18,14 @@ def create_kdl_chain(dh_params):
     print(f'Create chain success with [{chain.getNrOfSegments()}] segments')
     return chain
 
-@benchmark
+# @benchmark
 def forward_kinematics(chain, joint_angles):
     fk_solver = ChainFkSolverPos_recursive(chain)
     end_effector_frame = Frame()
     fk_solver.JntToCart(joint_angles, end_effector_frame)
     return end_effector_frame
 
-@benchmark
+# @benchmark
 def inverse_kinematics(chain, q_init, pos_goal, q_sol):
     ik_solver = ChainIkSolverPos_LMA(chain)  # Using Levenberg-Marquardt algorithm
     return ik_solver.CartToJnt(q_init, pos_goal, q_sol)
@@ -60,7 +60,7 @@ if __name__ == "__main__":
         [0.0        , deg2rad(0)       , 69.6e-3   , deg2rad(0.0002)  ]   # Joint 6
     ]
     chain = create_kdl_chain(dh_params)
-    joint_angles = toJntArray([ 2.81955,  0.73928, -0.4205,   0.56949, -1.53532, -0.33057])
+    joint_angles = toJntArray([-0.04506, -0.20009,  1.14981,  0.04487,  1.57482,  0.19491])
 
     # testFKrecursive(chain, joint_angles)
 

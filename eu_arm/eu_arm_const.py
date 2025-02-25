@@ -16,9 +16,10 @@ class ControlMode(Enum):
     CURRENT_MODE = 4           # 电流模式
     POSITION_MODE = 5          # 同步周期位置模式
 
-# Calibrated DH Params
+# Calibrated DH Params New Arm KDL
+kJNT_NUM = 6
 kJOINT_TYPE = [0, 0, 0, 0, 0, 0]  # Revolute
-kDH_A = np.array([0, 0, 183.765, 164.6548, -0.4715, -1.7394]) * 1e-3
-kDH_ALPHA = np.array([0, 90, 179.3582, 179.6965, -90.2676, 90.0063]) * np.pi / 180.
-kDH_D = np.array([109, 0.7599, -0.1203, 76.2699, 73.7185, 69.6]) * 1e-3
-kDH_THETA = np.array([-0.2988, 88.8208, 0.0709, -90.3032, -0.0696, 0.0002]) * np.pi / 180.
+kDH_A = np.array([0, 183.5816,164.8151, -0.1811, 1.7608, 0]) * 1e-3
+kDH_ALPHA = np.array([90, 179.2158, 180.2342, -89.9757, 89.9942, 0])
+kDH_D = np.array([109, 0.5024, -0.4520, 76.8241, 73.6426, 69.6]) * 1e-3
+kDH_THETA = np.array([0.0133, 90.6272, 0.4330, -89.7143, 0.0299, -0.0002])
