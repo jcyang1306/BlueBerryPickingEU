@@ -12,7 +12,7 @@ from ruckig import InputParameter, OutputParameter, Result, Ruckig
 
 from spatialmath import *
 
-from benchmark import benchmark
+from utils.benchmark import benchmark
 
 np.set_printoptions(precision=5, suppress=True)
 

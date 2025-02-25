@@ -166,7 +166,7 @@ class robot:
             return q_ans
         return q
 
-    from benchmark import benchmark
+    from utils.benchmark import benchmark
     @benchmark
     def MIK_from_T(self, T_desired, q, iterate_times=100):
         Rt = T_desired[0:3, 0:3]
