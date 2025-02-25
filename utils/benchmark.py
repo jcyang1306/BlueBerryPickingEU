@@ -11,7 +11,7 @@ def benchmark(func):
         result = func(*args, **kwargs)  # Call the original function
         end_time = time.time()  # Record the end time
         elapsed_time = end_time - start_time  # Calculate elapsed time
-        print(f"  >> benchmark >> Function <{func.__name__}> done, [{elapsed_time:.4f}]s used")
+        print(f"  >> benchmark >> Function <{func.__name__}> done, [{elapsed_time:.4f}]s used\n")
         return result  # Return the result of the original function
     return wrapper
 
