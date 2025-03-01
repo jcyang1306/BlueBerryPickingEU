@@ -3,6 +3,7 @@ import numpy as np
 import glob
 from scipy.spatial.transform import Rotation as Rot
 import copy, csv
+import threading
 
 from dev.rs_d405 import RealSenseController
 from dev.pump_control import PumpControl
@@ -25,27 +26,67 @@ H_handeye = np.array([
     [ 0.       ,  0.       ,  0.       ,  1.       ]
     ]) 
 
-
 eef_offset = np.array(
 [[1.0,  0.0,  0.0, 0.0  ],
  [0.0 , 1.0,  0.0, 0.0  ],
  [0.0 ,  0.0,  1.0, -0.14],
  [0.  ,  0. ,  0. ,  1.  ]])
 
+EEF_STEP = 0.0015
+
 eef_step_fwd = np.eye(4)
-eef_step_fwd[2, 3] = 0.0015
+eef_step_fwd[2, 3] = EEF_STEP
 
 eef_step_bwd = np.eye(4)
-eef_step_bwd[2, 3] = -0.0015
+eef_step_bwd[2, 3] = -EEF_STEP
 
-detected_obj_pose = np.array([[-0.9990327,  0.0428815, -0.009739 ,  0.0446881],
-       [-0.0358097, -0.9218934, -0.3857852, -0.0301231],
-       [-0.0255213, -0.3850633,  0.9225372,  0.2100264],
-       [ 0.       ,  0.       ,  0.       ,  1.       ]])
+# hardcoded object pose, ensures topdown
+detected_obj_pose = np.array([
+    [-0.9990327,  0.0428815, -0.009739 ,  0.0446881],
+    [-0.0358097, -0.9218934, -0.3857852, -0.0301231],
+    [-0.0255213, -0.3850633,  0.9225372,  0.2100264],
+    [ 0.       ,  0.       ,  0.       ,  1.       ]])
 
 @benchmark
 def infer(algo, img):
     return algo.infer_img(img)
+
+@benchmark
+def servoL(relative_pos):
+    # robot arm fk
+    q_curr = eu_get_current_joint_positions()
+    eef_pose_frame = eu_arm.FK(q_curr)
+    eef_pose = eu_arm.frame2mat(eef_pose_frame)
+    
+    grasp_pose = eef_pose @ relative_pos
+    grasp_pose_frame = eu_arm.mat2frame(grasp_pose)
+    
+    ec = 0 # NoError
+    q_grasp = eu_arm.IK(q_curr, grasp_pose_frame, ec)
+    print(f'grasp js pose: {q_grasp}')
+    print(f'delta q: {q_curr - q_grasp}')
+    
+    if np.max(np.max(q_grasp)) > 1.6 or np.max(np.abs(q_curr - q_grasp) > 0.075):
+        print('\n===== joint out of range =====')
+    else:
+        eu_mov_to_target_jnt_pos(q_grasp)
+
+def moveL(z_offset):
+    eu_set_joint_velocities([1,1,1,1,1,1])
+    stps_total = int(np.abs(z_offset)/EEF_STEP)
+    if z_offset > 0:
+        eef_step_mat = eef_step_fwd
+    else:
+        eef_step_mat = eef_step_bwd
+    for i in range(stps_total):
+        servoL(eef_step_mat)
+        time.sleep(0.01)
+    print(f"============moveL done [{stps_total}] ============")
+
+def moveRelativeAsync(z_offset):
+    eu_set_joint_velocities([1,1,1,1,1,1])
+    t = threading.Thread(target=moveL, args=(z_offset, ))
+    t.start()
 
 if __name__ == "__main__":  
     # EU Robot Arm initialization 
@@ -74,7 +115,6 @@ if __name__ == "__main__":
     cam_intr, distor_coeff = rs_ctrl.get_intrinsics()
     # rs_ctrl.start_streaming()
 
-
     # Vision Algo
     grasp_algo = GraspingAlgo()
 
@@ -88,10 +128,7 @@ if __name__ == "__main__":
     q_curr = eu_get_current_joint_positions()
     JMOVE_STEP = 0.005
     q_target = q_init
-
     ## ================= Global Variables =================
-
-    import time
 
     try:
         while True:
@@ -110,19 +147,12 @@ if __name__ == "__main__":
                 cv2.destroyAllWindows()
                 break
 
-            if key & 0xFF == ord('c'):
-                print("\n===== closing gripper =====")  
-                pump_ctrl.config_gripper(1)
-                continue
 
-            if key & 0xFF == ord('r'):
-                print("\n===== releasing gripper =====")  
-                pump_ctrl.config_gripper(0)
-                continue
 
             if key & 0xFF == ord('s'):
+                print("\n===== start inference =====")
                 masks = infer(grasp_algo, color_img)
-                if masks is not None:
+                if masks is not None and len(masks) > 0:
                     pc = rs_ctrl.convert_to_pointcloud(color_frame, depth_frame)
                     grasp_poses = grasp_algo.gen_grasp_pose(color_img, pc, masks)
                     if grasp_poses is not None:                        
@@ -134,7 +164,6 @@ if __name__ == "__main__":
                 else:
                     print('\n===== no object detected =====')
                 continue
-
 
             if key & 0xFF == ord('g'):
                 print("\n go grasping")  
@@ -161,55 +190,50 @@ if __name__ == "__main__":
                 time.sleep(3)
                 continue
 
+            if key & 0xFF == ord('t'):
+                print("===== stepping down =====")  
+                moveRelativeAsync(0.20)
+                time.sleep(2.5)
+
+                print("===== closing gripper =====")  
+                pump_ctrl.config_gripper(1)
+                time.sleep(1)
+                q_target = eu_get_current_joint_positions()
+                q_target[5] += 60 / 180 * np.pi # 60deg
+                eu_mov_to_target_jnt_pos(q_target)
+                time.sleep(3)
+
+                print("===== stepping up =====")  
+                moveRelativeAsync(-0.18)
+                time.sleep(2)
+
+                print("===== releasing gripper =====")  
+                pump_ctrl.config_gripper(0)
+                continue
 
             if key & 0xFF == ord('m'):
                 print("\n moving along eef z axis")  
-
-                # robot arm fk
-                q_curr = eu_get_current_joint_positions()
-                eef_pose_frame = eu_arm.FK(q_curr)
-                eef_pose = eu_arm.frame2mat(eef_pose_frame)
-                print(f'eef_pose: \n{repr(eef_pose)}')
-
-                grasp_pose = eef_pose @ eef_step_fwd
-                print(f'grasp_pose: \n{repr(grasp_pose)}')
-
-                grasp_pose_frame = eu_arm.mat2frame(grasp_pose)
-                ec = 0 # NoError
-                q_grasp = eu_arm.IK(q_curr, grasp_pose_frame, ec)
-                print(f'grasp js pose: {q_grasp}')
-                print(f'delta q: {q_curr - q_grasp}')
-                
-                if np.max(np.max(q_grasp)) > 1.6 or np.max(np.abs(q_curr - q_grasp) > 0.075):
-                    print('\n===== joint out of range =====')
-                else:
-                    eu_set_joint_velocities([1,1,1,1,1,1])
-                    eu_mov_to_target_jnt_pos(q_grasp)
+                moveRelativeAsync(0.03)
                 continue
 
             if key & 0xFF == ord('u'):
                 print("\n moving along eef z axis")  
+                moveRelativeAsync(-0.03)
+                continue
 
-                # robot arm fk
-                q_curr = eu_get_current_joint_positions()
-                eef_pose_frame = eu_arm.FK(q_curr)
-                eef_pose = eu_arm.frame2mat(eef_pose_frame)
-                print(f'eef_pose: \n{repr(eef_pose)}')
+            if key & 0xFF == ord('c'):
+                print("\n===== closing gripper =====")  
+                pump_ctrl.config_gripper(1)
+                continue
 
-                grasp_pose = eef_pose @ eef_step_bwd
-                print(f'grasp_pose: \n{repr(grasp_pose)}')
+            if key & 0xFF == ord('r'):
+                print("\n===== releasing gripper =====")  
+                pump_ctrl.config_gripper(0)
+                continue
 
-                grasp_pose_frame = eu_arm.mat2frame(grasp_pose)
-                ec = 0 # NoError
-                q_grasp = eu_arm.IK(q_curr, grasp_pose_frame, ec)
-                print(f'grasp js pose: {q_grasp}')
-                print(f'delta q: {q_curr - q_grasp}')
-                
-                if np.max(np.max(q_grasp)) > 1.6 or np.max(np.abs(q_curr - q_grasp) > 0.075):
-                    print('\n===== joint out of range =====')
-                else:
-                    eu_set_joint_velocities([1,1,1,1,1,1])
-                    eu_mov_to_target_jnt_pos(q_grasp)
+            if key & 0xFF == ord('i'):
+                q_init = np.array([-0.04506, -0.20009,  1.14981,  0.04487,  1.57482,  0.19491])
+                eu_mov_to_target_jnt_pos(q_init)
                 continue
 
             if key & 0xFF == 82: # up 
