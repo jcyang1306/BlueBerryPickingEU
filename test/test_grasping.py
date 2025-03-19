@@ -53,7 +53,7 @@ detected_obj_pose = np.array([
 detected_obj_pose_viewpoint = np.array([
     [-1.0,  0.0, 0.0 ,  0.0],
     [0.0 , -1.0, 0.0 ,  0.0],
-    [0.0 ,  0.0, 1.0 ,  0.1],
+    [0.0 ,  0.0, 1.0 ,  0.0],
     [ 0. ,  0. ,  0. ,  1.       ]])
     # [-0.9693427,  0.2454546, -0.0112599,  0.0],
     # [-0.1902715, -0.778833 , -0.5976754,  0.0],
@@ -85,16 +85,11 @@ if __name__ == "__main__":
             eu_set_work_mode(ControlMode.POSITION_MODE)
             
             # move to initial pose            
-            # b2 [-1.3804397, -0.5810595,  0.6262863,  0.5990024,  1.5148448, -1.1884477]
-            # Desktop [-0.04506, -0.20009,  1.14981,  0.04487,  1.57482,  0.19491]
+            # q_init = np.array([-0.6413957, -0.1006675,  1.6981167, -1.6429893, -1.2870099, 1.9006022]) #   demo init pose2
+            q_init = np.array([ 1.6677247, -0.8994151, -2.3543898, -0.9156835, -1.8894455, -1.6323473]) #   demo init pose2
 
-            # q_init = np.array([-1.5678242,  0.5048714,  1.8200682,  1.1766591,  1.644715 , -1.3820208]) #  demo init pose1
-            
-            # q_init = np.array([-0.3098641, -0.2427525,  1.5173946,  1.494289 ,  0.4976724, -1.1005813]) #   demo init pose2
-            # q_init = np.array([-1.2384019,  0.0845607,  1.7863206, -1.6458655, -1.1614152, 1.4325463]) #  
-
-            # eu_mov_to_target_jnt_pos(q_init)
-            q_init = eu_get_current_joint_positions()
+            eu_mov_to_target_jnt_pos(q_init)
+            # q_init = eu_get_current_joint_positions()
 
     # Pump init
     if use_pump:
@@ -121,6 +116,8 @@ if __name__ == "__main__":
     q_curr = eu_get_current_joint_positions()
     JMOVE_STEP = 0.005
     q_target = q_init
+    PRE_GRASP_DIST = 0.05 # mm
+    GRASP_OFFSET = 0.025 # MM
     ## ================= Global Variables =================
 
     try:
@@ -165,17 +162,17 @@ if __name__ == "__main__":
             elif key & 0xFF == ord('g'):
                 print("\n go grasping")  
                 q_curr = eu_get_current_joint_positions()
-                eef_pose = eu_arm.frame2mat(eu_arm.FK(q_curr))
+                eef_pose = computeFK_kdl(q_curr)
 
                 # pregrasp pose -> relative pose on x-y plane wrt eef
                 eef2obj = H_handeye @ detected_obj_pose_viewpoint 
                 eef2pre_grasp= np.eye(4)
                 eef2pre_grasp[:3, 3] = eef2obj[:3, 3]
-                if eef2obj[2, 3] - 0.14 > 0.075:
-                    eef2pre_grasp[2, 3] = 0.075
+                if eef2obj[2, 3] > PRE_GRASP_DIST + 0.135:
+                    eef2pre_grasp[2, 3] = eef2obj[2, 3] - 0.135 - PRE_GRASP_DIST
                 else:
-                    eef2pre_grasp[2, 3] = eef2obj[2, 3] - 0.14
-                print(f'marching_dist: {eef2obj[2, 3] - 0.14} | pre_grasp_dist: [{eef2pre_grasp[2, 3]}]')
+                    eef2pre_grasp[2, 3] = 0
+                print(f'marching_dist: {eef2obj[2, 3] - 0.1} | pre_grasp_dist: [{eef2pre_grasp[2, 3]}]')
                 print(f'eef2pre_grasp: \n{repr(eef2pre_grasp)}')
 
                 H_base_to_obj = eef_pose @ eef2pre_grasp
@@ -185,9 +182,8 @@ if __name__ == "__main__":
                 print(f'H_base_to_obj: \n{repr(H_base_to_obj)}')
                 print(f'grasp_pose: \n{repr(grasp_pose_tcp)}')
 
-                grasp_pose_frame = eu_arm.mat2frame(grasp_pose_tcp)
                 ec = 0 # NoError
-                q_grasp = eu_arm.IK(q_curr, grasp_pose_frame, ec)
+                q_grasp = computeIK_kdl(q_curr, grasp_pose_tcp, ec)
                 print(f'curr  js pose: {q_curr}')
                 print(f'grasp js pose: {q_grasp}')
 
@@ -201,12 +197,15 @@ if __name__ == "__main__":
 
             elif key & 0xFF == ord('t'):
                 print("===== stepping forward =====")  
-                moveRelativeAsync(0.20)
-                time.sleep(2.5)
+                # moveRelativeAsync(PRE_GRASP_DIST + GRASP_OFFSET)
+                # time.sleep(2.5)
+                moveL_blk(PRE_GRASP_DIST + GRASP_OFFSET)
 
                 print("===== closing gripper =====")  
                 closeGripper(pump_ctrl)
                 time.sleep(1)
+
+                print("===== rotating =====")  
                 q_target = eu_get_current_joint_positions()
                 q_target[5] += 90 / 180 * np.pi # 90deg
                 eu_set_joint_velocities([2,2,3,5,2,10])
@@ -215,8 +214,10 @@ if __name__ == "__main__":
                 time.sleep(3)
 
                 print("===== getting back =====")  
-                moveRelativeAsync(-0.38)
-                time.sleep(2)
+                # moveRelativeAsync(-0.1)
+                # time.sleep(2)
+                moveL_blk(-0.1)
+
 
                 print("===== releasing gripper =====")  
                 # releaseGripper(pump_ctrl)
