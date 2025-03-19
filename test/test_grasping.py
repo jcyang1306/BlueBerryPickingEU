@@ -19,12 +19,21 @@ np.set_printoptions(precision=7, suppress=True)
 import time
 import numpy as np
 
+use_pump = True
+JOINTLIMIT = 3.14
+
+    # [-0.9996523,  0.025658 ,  0.0060854,  0.0081949],
+    # [-0.0256909, -0.9996554, -0.0053882,  0.0506086],
+    # [ 0.0059451, -0.0055427,  0.999967 ,  0.0800145],
+    # [ 0.       ,  0.       ,  0.       ,  1.       ]
+
+
 H_handeye = np.array([
-    [-0.9693427, -0.1902716, -0.1554718,  0.0225967],
-    [ 0.2454546, -0.778833 , -0.5772098,  0.049451 ],
-    [-0.01126  , -0.5976754,  0.8016591,  0.088671 ],
+    [-0.9996523,  0.025658 ,  0.0060854,  0.0081949],
+    [-0.0256909, -0.9996554, -0.0053882,  0.0476086],
+    [ 0.0059451, -0.0055427,  0.999967 ,  0.0800145],
     [ 0.       ,  0.       ,  0.       ,  1.       ]
-    ]) 
+]) 
 
 eef_offset = np.array(
 [[1.0,  0.0,  0.0, 0.0  ],
@@ -47,11 +56,23 @@ detected_obj_pose = np.array([
     [-0.0255213, -0.3850633,  0.9225372,  0.2100264],
     [ 0.       ,  0.       ,  0.       ,  1.       ]])
 
-@benchmark
+
+# hardcoded object pose, ensures topdown
+detected_obj_pose_viewpoint = np.array([
+    # [-1.0,  0.0, 0.0 ,  0.0],
+    # [0.0 , -1.0, 0.0 ,  0.0],
+    # [0.0 ,  0.0, 1.0 ,  0.1],
+    # [ 0. ,  0. ,  0. ,  1.       ]])
+    [-0.9693427,  0.2454546, -0.0112599,  0.0],
+    [-0.1902715, -0.778833 , -0.5976754,  0.0],
+    [-0.1554718, -0.5772098,  0.8016591,  0.1],
+    [ 0. ,  0. ,  0. ,  1.       ]])
+
+# @benchmark
 def infer(algo, img):
     return algo.infer_img(img)
 
-@benchmark
+# @benchmark
 def servoL(relative_pos):
     # robot arm fk
     q_curr = eu_get_current_joint_positions()
@@ -66,8 +87,10 @@ def servoL(relative_pos):
     print(f'grasp js pose: {q_grasp}')
     print(f'delta q: {q_curr - q_grasp}')
     
-    if np.max(np.max(q_grasp)) > 1.6 or np.max(np.abs(q_curr - q_grasp) > 0.075):
-        print('\n===== joint out of range =====')
+    if np.max(np.max(q_grasp)) > JOINTLIMIT:
+        print('\n===== joint out of range <exceed joint limit> =====')
+    elif np.max(np.abs(q_curr - q_grasp) > 0.075):
+        print('\n===== joint out of range <delta q> =====')
     else:
         eu_mov_to_target_jnt_pos(q_grasp)
 
@@ -84,9 +107,17 @@ def moveL(z_offset):
     print(f"============moveL done [{stps_total}] ============")
 
 def moveRelativeAsync(z_offset):
-    eu_set_joint_velocities([1,1,1,1,1,1])
+    eu_set_joint_velocities([1,1,1,1,1,10])
     t = threading.Thread(target=moveL, args=(z_offset, ))
     t.start()
+
+def closeGripper(pump_ctrl):
+    if pump_ctrl is not None:
+        pump_ctrl.config_gripper(1)
+
+def releaseGripper(pump_ctrl):
+    if pump_ctrl is not None:
+        pump_ctrl.config_gripper(0)
 
 if __name__ == "__main__":  
     # EU Robot Arm initialization 
@@ -97,17 +128,27 @@ if __name__ == "__main__":
             print("eu_get_heartbeat ok")
 
             eu_enable_motor(True)
-            eu_set_joint_max_velocity(3)
-            eu_set_joint_velocities([2,2,3,5,2,3])
+            eu_set_joint_max_velocity(10)
+            eu_set_joint_velocities([2,2,3,5,2,10])
             eu_set_work_mode(ControlMode.POSITION_MODE)
             
             # move to initial pose            
-            q_init = np.array([-0.04506, -0.20009,  1.14981,  0.04487,  1.57482,  0.19491])
+            # b2 [-1.3804397, -0.5810595,  0.6262863,  0.5990024,  1.5148448, -1.1884477]
+            # Desktop [-0.04506, -0.20009,  1.14981,  0.04487,  1.57482,  0.19491]
+
+            # q_init = np.array([-1.5678242,  0.5048714,  1.8200682,  1.1766591,  1.644715 , -1.3820208]) #  demo init pose1
+            
+            # q_init = np.array([-0.3098641, -0.2427525,  1.5173946,  1.494289 ,  0.4976724, -1.1005813]) #   demo init pose2
+            q_init = np.array([-1.2384019,  0.0845607,  1.7863206, -1.6458655, -1.1614152, 1.4325463]) #  
+
             eu_mov_to_target_jnt_pos(q_init)
             # q_init = eu_get_current_joint_positions()
 
     # Pump init
-    pump_ctrl = PumpControl()
+    if use_pump:
+        pump_ctrl = PumpControl()
+    else:
+        pump_ctrl = None
 
     # Realsense init
     rs_ctrl = RealSenseController()
@@ -147,20 +188,26 @@ if __name__ == "__main__":
                 cv2.destroyAllWindows()
                 break
 
-
-
             if key & 0xFF == ord('s'):
                 print("\n===== start inference =====")
+                t0 = time.time()
                 masks = infer(grasp_algo, color_img)
+                print(f'>>> infer {time.time()-t0}')
+
                 if masks is not None and len(masks) > 0:
                     pc = rs_ctrl.convert_to_pointcloud(color_frame, depth_frame)
                     grasp_poses = grasp_algo.gen_grasp_pose(color_img, pc, masks)
+                    print(f'grasppose gen {time.time()-t0}')
                     if grasp_poses is not None:                        
                         first_obj_pose = grasp_poses[0]
-                        detected_obj_pose[:3,3] = first_obj_pose[:3]
+                        detected_obj_pose_viewpoint[:3,3] = first_obj_pose[:3]
+                        
                         print(f"selected object pose: \n{repr(first_obj_pose)}")
-                        print(f'================\ndetected pose: \n{repr(detected_obj_pose)}\n====================')
+                        print(f'================\ndetected pose: \n{repr(detected_obj_pose_viewpoint)}\n====================')
 
+                        eef2obj = H_handeye @ detected_obj_pose_viewpoint 
+                        print(f'eef2obj: \n{repr(eef2obj)}')
+                        
                 else:
                     print('\n===== no object detected =====')
                 continue
@@ -170,9 +217,21 @@ if __name__ == "__main__":
                 q_curr = eu_get_current_joint_positions()
                 eef_pose = eu_arm.frame2mat(eu_arm.FK(q_curr))
 
-                H_base_to_obj = eef_pose @ H_handeye @ detected_obj_pose 
-                grasp_pose_tcp = H_base_to_obj @ eef_offset
+                # pregrasp pose -> relative pose on x-y plane wrt eef
+                eef2obj = H_handeye @ detected_obj_pose_viewpoint 
+                eef2pre_grasp= np.eye(4)
+                eef2pre_grasp[:3, 3] = eef2obj[:3, 3]
+                if eef2obj[2, 3] - 0.14 > 0.075:
+                    eef2pre_grasp[2, 3] = 0.075
+                else:
+                    eef2pre_grasp[2, 3] = eef2obj[2, 3] - 0.14
+                print(f'marching_dist: {eef2obj[2, 3] - 0.14} | pre_grasp_dist: [{eef2pre_grasp[2, 3]}]')
+                print(f'eef2pre_grasp: \n{repr(eef2pre_grasp)}')
 
+                H_base_to_obj = eef_pose @ eef2pre_grasp
+                grasp_pose_tcp = H_base_to_obj
+
+                print(f'eef_pose: \n{repr(eef_pose)}')
                 print(f'H_base_to_obj: \n{repr(H_base_to_obj)}')
                 print(f'grasp_pose: \n{repr(grasp_pose_tcp)}')
 
@@ -182,7 +241,7 @@ if __name__ == "__main__":
                 print(f'curr  js pose: {q_curr}')
                 print(f'grasp js pose: {q_grasp}')
 
-                if np.max(np.max(q_grasp)) > 1.6:
+                if np.max(np.max(q_grasp)) > 2.8:
                     print('\n===== joint out of range =====')
                 else:
                     eu_mov_to_target_jnt_pos(q_grasp)
@@ -196,19 +255,21 @@ if __name__ == "__main__":
                 time.sleep(2.5)
 
                 print("===== closing gripper =====")  
-                pump_ctrl.config_gripper(1)
+                closeGripper(pump_ctrl)
                 time.sleep(1)
                 q_target = eu_get_current_joint_positions()
-                q_target[5] += 60 / 180 * np.pi # 60deg
+                q_target[5] += 90 / 180 * np.pi # 90deg
+                eu_set_joint_velocities([2,2,3,5,2,10])
+                
                 eu_mov_to_target_jnt_pos(q_target)
                 time.sleep(3)
 
                 print("===== stepping up =====")  
-                moveRelativeAsync(-0.18)
+                moveRelativeAsync(-0.38)
                 time.sleep(2)
 
                 print("===== releasing gripper =====")  
-                pump_ctrl.config_gripper(0)
+                # releaseGripper(pump_ctrl)
                 continue
 
             if key & 0xFF == ord('m'):
@@ -223,16 +284,17 @@ if __name__ == "__main__":
 
             if key & 0xFF == ord('c'):
                 print("\n===== closing gripper =====")  
-                pump_ctrl.config_gripper(1)
+                closeGripper(pump_ctrl)
                 continue
 
             if key & 0xFF == ord('r'):
                 print("\n===== releasing gripper =====")  
-                pump_ctrl.config_gripper(0)
+                releaseGripper(pump_ctrl)
                 continue
 
             if key & 0xFF == ord('i'):
-                q_init = np.array([-0.04506, -0.20009,  1.14981,  0.04487,  1.57482,  0.19491])
+                # q_init = np.array([-0.04506, -0.20009,  1.14981,  0.04487,  1.57482,  0.19491])
+                eu_set_joint_velocities([2,2,3,5,2,10])
                 eu_mov_to_target_jnt_pos(q_init)
                 continue
 
