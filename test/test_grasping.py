@@ -3,24 +3,23 @@ import numpy as np
 import glob
 from scipy.spatial.transform import Rotation as Rot
 import copy, csv
-import threading
+import time
 
 from dev.rs_d405 import RealSenseController
 from dev.pump_control import PumpControl
 from utils.circular_linked_list import CLinkedList
 
 from eu_arm.eu_arm_interface import *
+from eu_arm.common import *
+
 
 # TODO: resolve include path issue
 from grasp_algo import GraspingAlgo
 
 np.set_printoptions(precision=7, suppress=True)
 
-import time
-import numpy as np
 
-use_pump = True
-JOINTLIMIT = 3.14
+use_pump = False
 
     # [-0.9996523,  0.025658 ,  0.0060854,  0.0081949],
     # [-0.0256909, -0.9996554, -0.0053882,  0.0506086],
@@ -41,13 +40,6 @@ eef_offset = np.array(
  [0.0 ,  0.0,  1.0, -0.14],
  [0.  ,  0. ,  0. ,  1.  ]])
 
-EEF_STEP = 0.0015
-
-eef_step_fwd = np.eye(4)
-eef_step_fwd[2, 3] = EEF_STEP
-
-eef_step_bwd = np.eye(4)
-eef_step_bwd[2, 3] = -EEF_STEP
 
 # hardcoded object pose, ensures topdown
 detected_obj_pose = np.array([
@@ -59,57 +51,18 @@ detected_obj_pose = np.array([
 
 # hardcoded object pose, ensures topdown
 detected_obj_pose_viewpoint = np.array([
-    # [-1.0,  0.0, 0.0 ,  0.0],
-    # [0.0 , -1.0, 0.0 ,  0.0],
-    # [0.0 ,  0.0, 1.0 ,  0.1],
-    # [ 0. ,  0. ,  0. ,  1.       ]])
-    [-0.9693427,  0.2454546, -0.0112599,  0.0],
-    [-0.1902715, -0.778833 , -0.5976754,  0.0],
-    [-0.1554718, -0.5772098,  0.8016591,  0.1],
+    [-1.0,  0.0, 0.0 ,  0.0],
+    [0.0 , -1.0, 0.0 ,  0.0],
+    [0.0 ,  0.0, 1.0 ,  0.1],
     [ 0. ,  0. ,  0. ,  1.       ]])
+    # [-0.9693427,  0.2454546, -0.0112599,  0.0],
+    # [-0.1902715, -0.778833 , -0.5976754,  0.0],
+    # [-0.1554718, -0.5772098,  0.8016591,  0.1],
+    # [ 0. ,  0. ,  0. ,  1.       ]])
 
 # @benchmark
 def infer(algo, img):
     return algo.infer_img(img)
-
-# @benchmark
-def servoL(relative_pos):
-    # robot arm fk
-    q_curr = eu_get_current_joint_positions()
-    eef_pose_frame = eu_arm.FK(q_curr)
-    eef_pose = eu_arm.frame2mat(eef_pose_frame)
-    
-    grasp_pose = eef_pose @ relative_pos
-    grasp_pose_frame = eu_arm.mat2frame(grasp_pose)
-    
-    ec = 0 # NoError
-    q_grasp = eu_arm.IK(q_curr, grasp_pose_frame, ec)
-    print(f'grasp js pose: {q_grasp}')
-    print(f'delta q: {q_curr - q_grasp}')
-    
-    if np.max(np.max(q_grasp)) > JOINTLIMIT:
-        print('\n===== joint out of range <exceed joint limit> =====')
-    elif np.max(np.abs(q_curr - q_grasp) > 0.075):
-        print('\n===== joint out of range <delta q> =====')
-    else:
-        eu_mov_to_target_jnt_pos(q_grasp)
-
-def moveL(z_offset):
-    eu_set_joint_velocities([1,1,1,1,1,1])
-    stps_total = int(np.abs(z_offset)/EEF_STEP)
-    if z_offset > 0:
-        eef_step_mat = eef_step_fwd
-    else:
-        eef_step_mat = eef_step_bwd
-    for i in range(stps_total):
-        servoL(eef_step_mat)
-        time.sleep(0.01)
-    print(f"============moveL done [{stps_total}] ============")
-
-def moveRelativeAsync(z_offset):
-    eu_set_joint_velocities([1,1,1,1,1,10])
-    t = threading.Thread(target=moveL, args=(z_offset, ))
-    t.start()
 
 def closeGripper(pump_ctrl):
     if pump_ctrl is not None:
@@ -121,7 +74,6 @@ def releaseGripper(pump_ctrl):
 
 if __name__ == "__main__":  
     # EU Robot Arm initialization 
-    eu_arm = eu_arm_kinematics()
     if eu_init_device(1000):
         print("eu_init_device ok")
         if eu_get_heartbeat():
@@ -139,10 +91,10 @@ if __name__ == "__main__":
             # q_init = np.array([-1.5678242,  0.5048714,  1.8200682,  1.1766591,  1.644715 , -1.3820208]) #  demo init pose1
             
             # q_init = np.array([-0.3098641, -0.2427525,  1.5173946,  1.494289 ,  0.4976724, -1.1005813]) #   demo init pose2
-            q_init = np.array([-1.2384019,  0.0845607,  1.7863206, -1.6458655, -1.1614152, 1.4325463]) #  
+            # q_init = np.array([-1.2384019,  0.0845607,  1.7863206, -1.6458655, -1.1614152, 1.4325463]) #  
 
-            eu_mov_to_target_jnt_pos(q_init)
-            # q_init = eu_get_current_joint_positions()
+            # eu_mov_to_target_jnt_pos(q_init)
+            q_init = eu_get_current_joint_positions()
 
     # Pump init
     if use_pump:
@@ -175,8 +127,6 @@ if __name__ == "__main__":
         while True:
             start = time.time()
 
-            # # Update robot states
-            # q_curr = eu_get_current_joint_positions()
             color_frame, depth_frame = rs_ctrl.get_stereo_frame()
             color_img = np.asanyarray(color_frame.get_data())
 
@@ -188,7 +138,7 @@ if __name__ == "__main__":
                 cv2.destroyAllWindows()
                 break
 
-            if key & 0xFF == ord('s'):
+            elif key & 0xFF == ord('s'):
                 print("\n===== start inference =====")
                 t0 = time.time()
                 masks = infer(grasp_algo, color_img)
@@ -212,7 +162,7 @@ if __name__ == "__main__":
                     print('\n===== no object detected =====')
                 continue
 
-            if key & 0xFF == ord('g'):
+            elif key & 0xFF == ord('g'):
                 print("\n go grasping")  
                 q_curr = eu_get_current_joint_positions()
                 eef_pose = eu_arm.frame2mat(eu_arm.FK(q_curr))
@@ -249,8 +199,8 @@ if __name__ == "__main__":
                 time.sleep(3)
                 continue
 
-            if key & 0xFF == ord('t'):
-                print("===== stepping down =====")  
+            elif key & 0xFF == ord('t'):
+                print("===== stepping forward =====")  
                 moveRelativeAsync(0.20)
                 time.sleep(2.5)
 
@@ -264,7 +214,7 @@ if __name__ == "__main__":
                 eu_mov_to_target_jnt_pos(q_target)
                 time.sleep(3)
 
-                print("===== stepping up =====")  
+                print("===== getting back =====")  
                 moveRelativeAsync(-0.38)
                 time.sleep(2)
 
@@ -272,47 +222,48 @@ if __name__ == "__main__":
                 # releaseGripper(pump_ctrl)
                 continue
 
-            if key & 0xFF == ord('m'):
+            elif key & 0xFF == ord('m'):
                 print("\n moving along eef z axis")  
                 moveRelativeAsync(0.03)
                 continue
 
-            if key & 0xFF == ord('u'):
+            elif key & 0xFF == ord('u'):
                 print("\n moving along eef z axis")  
                 moveRelativeAsync(-0.03)
                 continue
 
-            if key & 0xFF == ord('c'):
+            elif key & 0xFF == ord('c'):
                 print("\n===== closing gripper =====")  
                 closeGripper(pump_ctrl)
                 continue
 
-            if key & 0xFF == ord('r'):
+            elif key & 0xFF == ord('r'):
                 print("\n===== releasing gripper =====")  
                 releaseGripper(pump_ctrl)
                 continue
 
-            if key & 0xFF == ord('i'):
+            elif key & 0xFF == ord('i'):
                 # q_init = np.array([-0.04506, -0.20009,  1.14981,  0.04487,  1.57482,  0.19491])
                 eu_set_joint_velocities([2,2,3,5,2,10])
                 eu_mov_to_target_jnt_pos(q_init)
                 continue
 
-            if key & 0xFF == 82: # up 
+            elif key & 0xFF == 82: # up 
                 q_target[j_idx.data-1] += JMOVE_STEP
                 eu_mov_to_target_jnt_pos(q_target)
                 continue
-            if key & 0xFF == 84: # down
+            elif key & 0xFF == 84: # down
                 q_target[j_idx.data-1] -= JMOVE_STEP
                 eu_mov_to_target_jnt_pos(q_target)
                 continue
-            if key & 0xFF == 81: # left 
-                print("\n===== switch to next joint =====")  
+            elif key & 0xFF == 81: # left 
                 j_idx = j_idx.prev
+                print(f"\n===== switch to prev joint, Joint [{j_idx.data}] selected =====")  
                 continue
-            if key & 0xFF == 83: # right
-                print("\n===== switch to next joint =====")  
+            elif key & 0xFF == 83: # right
                 j_idx = j_idx.next
+                print(f"\n===== switch to next joint, Joint [{j_idx.data}] selected =====")  
                 continue
     finally:
         rs_ctrl.stop_streaming()
+        grasp_algo.free_cuda_buffers()
