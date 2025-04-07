@@ -96,6 +96,7 @@ def moveJ_blk(target_jpos, jerr_thd=0.2):
     return True
 
 def moveL_blk(z_offset):
+    print(f'moving forward with [{z_offset}]')
     eu_set_joint_velocities([1,1,1,1,1,1])
     stps_total = int(np.abs(z_offset)/EEF_STEP)
     if z_offset > 0:
@@ -113,17 +114,20 @@ def moveL_blk(z_offset):
         ec = 0
         traj_q = eu_arm.computeIK(q_curr, eef_pose, ec)
         q_curr = traj_q
-        print(f'step [{i}]: {q_curr}\n{eef_pose}')
+        # print(f'step [{i}]: {q_curr}\n{eef_pose}')
         # if ec
         j_traj.append(traj_q)
     print(f'traj interpolation done, {len(j_traj)} pts in total')
     for q_target in j_traj:
         moveJ_blk(q_target, 0.5)
-    check_all_close(j_traj[-1], 0.1)
+
+    # Waiting for final point execution cnverge
+    while not check_all_close(j_traj[-1], 0.1):
+        time.sleep(0.01)
+
     print(f"============moveL done [{stps_total}] ============")
 
 
 def moveRelativeAsync(z_offset):
-    eu_set_joint_velocities([1,1,1,1,1,10])
     t = threading.Thread(target=moveL_blk, args=(z_offset, ))
     t.start()

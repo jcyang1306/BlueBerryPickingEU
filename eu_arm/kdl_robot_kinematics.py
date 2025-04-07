@@ -61,13 +61,21 @@ class KDLKinematics():
         q_sol = [q_sol[i] for i in range(len(q_init))]
         return q_sol
 
+    def computeFK(self, q):
+        pose_frame = self.forward_kinematics(q)
+        return self.frame2mat(pose_frame)
+    
+    def computeIK(self, q_init, pos_goal, retval):
+        pose_frame = self.mat2frame(pos_goal)
+        return self.IK(q_init, pose_frame, retval)
+
     def forward_kinematics(self, q):
         end_effector_frame = Frame()
         joint_angles = self.toJntArray(q)
         self.fk_pos_solver.JntToCart(joint_angles, end_effector_frame)
         return end_effector_frame
 
-    @benchmark
+    # @benchmark
     def frame2mat(self, frame):
         rotx = np.array(list(frame.M.UnitX())).reshape(3,1)
         roty = np.array(list(frame.M.UnitY())).reshape(3,1)
