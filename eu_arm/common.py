@@ -1,6 +1,8 @@
 from eu_arm.eu_arm_interface import *
 import threading
-
+from scipy.spatial.transform import Slerp
+from scipy.spatial.transform import Rotation as Rot
+from utils.benchmark import benchmark
 
 eu_arm = eu_arm_kinematics()
 
@@ -90,9 +92,9 @@ def moveJ_blk(target_jpos, jerr_thd=0.2):
     # TODO: check device init, running state... and handle exception
     eu_mov_to_target_jnt_pos(target_jpos)
 
-    # checkAllClose at 20Hz freq
+    # checkAllClose at 200Hz freq
     while not check_all_close(target_jpos, jerr_thd):
-        time.sleep(0.01)
+        time.sleep(0.005)
     return True
 
 def moveL_blk(z_offset):
@@ -131,3 +133,33 @@ def moveL_blk(z_offset):
 def moveRelativeAsync(z_offset):
     t = threading.Thread(target=moveL_blk, args=(z_offset, ))
     t.start()
+
+
+def slerp(steps, rot):
+    key_times = [0, 1] #rot0, rotf
+    slerp = Slerp(key_times, rot)
+    times = np.linspace(0, 1, steps)
+    interp_rot = slerp(times)
+    return interp_rot.as_matrix()
+
+@benchmark
+def interpolate_pose(init_pose, target_pose, steps):
+    # Rotation interpolation
+    key_rots = Rot.from_matrix([init_pose[:3, :3],target_pose[:3, :3]])
+    print(key_rots[0].as_matrix())
+    interp_rots = slerp(steps, key_rots)
+
+    # Translation interpolation
+    tvec0 = init_pose[:3, 3]
+    tvecf = target_pose[:3, 3]
+    t = np.linspace(0, 1, steps).reshape(-1, 1)
+    interp_transl = (tvec0 + t * (tvecf - tvec0)).reshape(-1, 3, 1)
+
+    # Final pose array
+    interp_T = np.concatenate([interp_rots, interp_transl], -1)
+    tmp = np.tile(np.array([0, 0, 0, 1]), (steps, 1)).reshape(steps, 1, 4)
+    interp_T = np.concatenate([interp_T, tmp], axis=1)
+
+    # Perform IK and collision checking
+
+    return interp_T
