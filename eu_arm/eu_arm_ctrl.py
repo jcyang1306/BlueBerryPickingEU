@@ -1,5 +1,5 @@
-from eu_planet import *
-from eu_arm_const import *
+from eu_arm.eu_planet import *
+from eu_arm.eu_arm_const import *
 import time
 
 # 初始化设备
@@ -112,6 +112,21 @@ def eu_mov_to_target_jnt_pos(positions):
 def eu_set_work_mode(mode: ControlMode):
     for id in range(1, JNT_NUM + 1): 
         planet_set_mode(EU_DEV_INDEX,id, mode.value)
+
+def check_all_close(target_jpos, jerr_thd_deg=0.2):
+    curr_jpos = eu_get_current_joint_positions()
+    diff_max = np.max(np.abs(target_jpos-curr_jpos))
+    # print(f'diff_pos: {target_jpos-curr_jpos} -> {diff_max} [{diff_max<(jerr_thd*math.pi/180)}]')
+    return diff_max<(jerr_thd_deg * np.pi / 180)
+
+def moveJ_blk(target_jpos, jerr_thd=0.2):
+    # TODO: check device init, running state... and handle exception
+    eu_mov_to_target_jnt_pos(target_jpos)
+
+    # checkAllClose at 200Hz freq
+    while not check_all_close(target_jpos, jerr_thd):
+        time.sleep(0.005)
+    return True
 
 # 调用示例
 if __name__ == "__main__":  

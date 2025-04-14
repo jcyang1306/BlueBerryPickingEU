@@ -1,6 +1,6 @@
 from eu_arm.eu_arm_ctrl import *
-from eu_kinematics import eu_arm_kinematics
-from common import *
+from eu_arm.eu_kinematics import eu_arm_kinematics
+from eu_arm.common import *
 
 class RobotArm():
     def __init__(self, connect_robot=True):
@@ -48,12 +48,12 @@ class RobotArm():
 
         # offline compute cartesian
         q0 = eu_get_current_joint_positions()
-        eef_pose = eu_arm.computeFK(q0)
+        eef_pose = self.eu_kin_.computeFK(q0)
         q_curr = q0
         j_traj = []
         for i in range(steps_total):
             eef_pose = eef_pose @ eef_step_mat
-            traj_q = eu_arm.computeIK(q_curr, eef_pose, retval=0)
+            traj_q = self.eu_kin_.computeIK(q_curr, eef_pose, retval=0)
             q_curr = traj_q
             j_traj.append(traj_q)
         print(f'traj interpolation done, {len(j_traj)} pts in total')
@@ -127,7 +127,6 @@ if __name__ == '__main__':
     robot.moveL(tcp_offset, 0.1)
     q, tcp_pose = robot.get_current_state()
     print(f'[Final] current state q: {q}\n{tcp_pose}')
-
 
     rot_left = np.array([
         [1.0000000,  0.0000000,  0.0000000,  0.0000000],

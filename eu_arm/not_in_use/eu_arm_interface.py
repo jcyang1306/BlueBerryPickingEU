@@ -166,8 +166,6 @@ class eu_arm_interface():
             if not first_output:
                 first_output = copy(out)
 
-
-
         print(f's0: {repr(s0)}, s1: {repr(s1)}')
 
         return []

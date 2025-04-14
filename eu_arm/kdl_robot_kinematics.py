@@ -6,10 +6,8 @@ import numpy as np
 from numpy import pi, sin, cos, deg2rad, rad2deg
 
 from utils.benchmark import benchmark
-from eu_arm_const import kJNT_NUM, kJOINT_TYPE, kDH_A, kDH_ALPHA, kDH_D, kDH_THETA # TODO: fix format mismatch with KDL 
-
 class KDLKinematics():
-    def __init__(self, joint_size=kJNT_NUM, joint_type=kJOINT_TYPE, a=kDH_A, alpha=kDH_ALPHA, d=kDH_D, theta=kDH_THETA):
+    def __init__(self, joint_size, joint_type, a, alpha, d, theta):
         self.JOINT_SIZE = joint_size
         self.A = a
         self.ALPHA = alpha
@@ -91,7 +89,6 @@ class KDLKinematics():
         tvec = Vector(mat[0, 3], mat[1, 3], mat[2, 3])
         return Frame(rot, tvec)
 
-
 if __name__ == "__main__":
     # Define DH parameters for a 6-DOF robot arm
     # [a, alpha, d, theta]
@@ -103,8 +100,9 @@ if __name__ == "__main__":
     #     [-1.7394e-3 , 90.0063 , 73.7185e-3, -0.0696 ],  # Joint 5
     #     [0.0        , 0       , 69.6e-3   , 0.0002  ]   # Joint 6
     # ]
+    from eu_arm.eu_arm_const import kJNT_NUM, kJOINT_TYPE, kDH_A, kDH_ALPHA, kDH_D, kDH_THETA # TODO: fix format mismatch with KDL 
 
-    kdl_kin = KDLKinematics()
+    kdl_kin = KDLKinematics(kJNT_NUM, kJOINT_TYPE, kDH_A, kDH_ALPHA, kDH_D, kDH_THETA)
     joint_angles = [-0.0450607, -0.2001845, 1.1496227, 0.0447731, 1.5747272, 0.1947197]
 
     # Compute forward kinematics

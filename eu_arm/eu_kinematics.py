@@ -1,10 +1,9 @@
-from eu_arm_const import *
-from kdl_robot_kinematics import KDLKinematics
+import numpy as np
+from eu_arm.eu_arm_const import kJNT_NUM, kJOINT_TYPE, kDH_A, kDH_ALPHA, kDH_D, kDH_THETA # TODO: fix format mismatch with KDL 
+from eu_arm.kdl_robot_kinematics import KDLKinematics
 np.set_printoptions(precision=7, suppress=True)
-
-
 class eu_arm_kinematics(KDLKinematics):
-    def __init__(self, joint_size=JNT_NUM, joint_type=kJOINT_TYPE, a=kDH_A, alpha=kDH_ALPHA, d=kDH_D, theta=kDH_THETA):
+    def __init__(self, joint_size=kJNT_NUM, joint_type=kJOINT_TYPE, a=kDH_A, alpha=kDH_ALPHA, d=kDH_D, theta=kDH_THETA):
         super().__init__(joint_size, joint_type, a, alpha, d, theta)
         self.name = "eu_arm"
         self.info()

@@ -9,10 +9,9 @@ machine = platform.machine()
 
 if system == "Linux":
     if machine == "x86_64":
-        # os.environ['LD_LIBRARY_PATH'] = './lib:' + os.environ.get('LD_LIBRARY_PATH', '')
+        # os.environ['LD_LIBRARY_PATH'] = './lib:' + os.environ.get('LD_LIBRARY_PATH', '') #LD_LIBRARY_PATH runtime changes will not take effect as python program already started
         eu_lib = ctypes.CDLL("libeu_planet.so")
     elif machine.startswith("arm") or machine.startswith("aarch"):
-        # os.environ['LD_LIBRARY_PATH'] = './lib:' + os.environ.get('LD_LIBRARY_PATH', '')
         eu_lib = ctypes.CDLL("libeu_planet.so")
 elif system == "Windows":
     if machine == "AMD64" or machine == "x86_64":
