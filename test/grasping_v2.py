@@ -1,7 +1,7 @@
 import numpy as np
 import open3d as o3d
 import cv2
-import threading
+import threading, time
 
 from dev.rs_d405 import RealSenseController
 from dev.pump_control import PumpControl
@@ -10,10 +10,27 @@ from utils.data_io import DataRecorder
 from env_cfg import *
 
 # TODO: resolve include path issue
-from grasp_algo import GraspingAlgo, get_nearest_inst
+from sensing_algo import GraspingAlgo
+
 
 np.set_printoptions(precision=7, suppress=True)
 
+def async_grasp(marching_dist):
+    global pump_ctrl, GRASP_OFFSET
+    print("===== stepping forward =====")  
+    robot.marching(marching_dist + GRASP_OFFSET, [1,1,1,1,1,1])
+
+    print("===== closing gripper =====")  
+    closeGripper(pump_ctrl)
+    time.sleep(1)
+
+    print("===== rotating =====")  
+    q_target = [0, 0, 0, 0, 0, 90 / 180 * np.pi]# 90deg for last joint
+    robot.moveJ_relative(q_target, speed=[2,2,3,5,2,10])
+    time.sleep(3)
+
+    print("===== getting back =====")  
+    robot.marching(-0.1, [1,1,1,1,1,1])
 
 def infer(algo, img):
     return algo.infer_img(img)
@@ -82,7 +99,7 @@ if __name__ == "__main__":
     q_target = q_init
     PRE_GRASP_DIST = 0.05 - 0.005 # mm
     GRIPPER_LENGTH = 0.135 # mm
-    GRASP_OFFSET = 0.0275  
+    GRASP_OFFSET = 0.015  
     saving_data_idx = 0
     refPt = (int(1280/2), int(720/2)) # center of img
     refPt_updated = False
@@ -130,7 +147,7 @@ if __name__ == "__main__":
                     print('>'*15, 'Could not find valid grasp pose', '>'*15)
                     continue
 
-                grasp_idx = get_nearest_inst(grasp_uv, refPt)
+                grasp_idx = GraspingAlgo.get_nearest_inst(grasp_uv, refPt)
                 print(f'finding nearest inst from ref pt: {refPt}/[{grasp_uv[grasp_idx]}] [{grasp_idx}]->{grasp_poses[grasp_idx]}')    
 
                 obj_pose_vec = grasp_poses[grasp_idx][0]
