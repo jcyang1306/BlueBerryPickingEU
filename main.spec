@@ -3,10 +3,18 @@
 
 a = Analysis(
     ['main.py'],
-    pathex=['/usr/local/lib/', '/usr/lib/aarch64-linux-gnu/'],
+    pathex=['/usr/local/lib/', 
+            '/usr/lib/aarch64-linux-gnu/',
+            '/usr/local/lib/python3.10/dist-packages/open3d/',
+            '/usr/local/lib/python3.10/dist-packages/'
+            ],
     binaries=[('eu_arm/lib/linux_arm64','.')],
-    datas=[],
-    hiddenimports=[],
+    datas=[('/usr/local/lib/python3.10/dist-packages/cuda/bindings/', 'cuda/bindings'),
+           ('/home/hkclr/.local/lib/python3.10/site-packages/open3d/', '.'),
+           ('env_cfg.json', '.')  
+            ],
+
+    hiddenimports=['cuda-cudart', 'cuda-bindings'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -16,7 +24,7 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
-exe = EXE(
+exe1 = EXE(
     pyz,
     a.scripts,
     [],
@@ -34,7 +42,7 @@ exe = EXE(
     entitlements_file=None,
 )
 coll = COLLECT(
-    exe,
+    exe1,
     a.binaries,
     a.datas,
     strip=False,
