@@ -22,6 +22,10 @@ class DataRecorder():
         print(f'Saved {self.save_path_}/frame-{idx:06d}_color.jpg')
         cv2.imwrite(f'{self.save_path_}/frame-{idx:06d}_color.jpg', img)
 
+    def save_depth(self, img, idx):
+        print(f'Saved {self.save_path_}/frame-{idx:06d}_depth.png')
+        cv2.imwrite(f'{self.save_path_}/frame-{idx:06d}_depth.png', img)
+
     def write_log(self, log, idx):
         print(f'Saved {self.save_path_}/frame-{idx:06d}_pose.txt')
         np.savetxt(f"{self.save_path_}/frame-{idx:06d}_pose.txt", log, fmt="%.5f")
