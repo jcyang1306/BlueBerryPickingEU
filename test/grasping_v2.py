@@ -32,6 +32,26 @@ def async_grasp(marching_dist):
     print("===== getting back =====")  
     robot.marching(-0.1, [1,1,1,1,1,1])
 
+# Realman robot version grasp motion
+def async_grasp_v2(marching_dist):
+    global pump_ctrl, GRASP_OFFSET
+    print("===== stepping forward =====")  
+    robot.movel_relative((0, 0, marching_dist + GRASP_OFFSET, 0, 0, 0), \
+                            v=10, r=20, connect=False, frame_type=1,  block=True)
+
+    print("===== closing gripper =====")  
+    closeGripper(pump_ctrl)
+    time.sleep(1)
+
+    print("===== rotating =====")  
+    q_target_inc = [0, 0, 0, 0, 0, 90 / 180 * np.pi] # 90deg for last joint
+    robot.moveJ_relative(q_target, speed=[2,2,3,5,2,10])
+    time.sleep(3)
+
+    print("===== getting back =====")  
+    robot.movel_relative((0, 0, -0.1, 0, 0, 0), \
+                            v=10, r=20, connect=False, frame_type=1,  block=True)
+
 def infer(algo, img):
     return algo.infer_img(img)
 

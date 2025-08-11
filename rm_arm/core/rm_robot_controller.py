@@ -1,5 +1,6 @@
 import sys
 import os
+from scipy.spatial.transform import Rotation as Rot
 
 # Add the parent directory of src to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -119,6 +120,15 @@ class RobotArmController:
         else:
             print("\nFailed to get robot arm model\n")
 
+    @staticmethod
+    def pose_mat2vec(pose_mat):
+        rpy = Rot.from_matrix(pose_mat[0:3,0:3]).as_euler('xyz', degrees=True)
+        position = pose_mat[0:3, 3]
+        
+        return  [position[0], position[1], position[2], \
+                    rpy[0], rpy[1], rpy[2]]    
+
+
     def get_joint_state(self, ret):
         """
         Perform get current joint in degree.
@@ -163,7 +173,7 @@ class RobotArmController:
 
         return True, pose_converted
 
-    def movej(self, joint, v=20, r=0, connect=0, block=1):
+    def moveJ(self, joint, v=20, r=0, connect=0, block=1):
         """
         Perform movej motion.
 
@@ -260,6 +270,14 @@ class RobotArmController:
     def servoJ(self, joint: list[float]):
         return self.robot.rm_movej_canfd(joint, False)
 
+    def move_to_pose(self, target_pose):
+        pose = self.pose_mat2vec(target_pose)
+        return self.movel(pose)
+
+    def moveJ_relative(self, target_q_inc, spd, block):
+        curr_q = self.get_joint_state()
+        target_q = curr_q + target_q_inc
+        return self.moveJ(target_q, v=spd, block=block)
 
 def main():
     # Create a robot arm controller instance and connect to the robot arm
@@ -272,13 +290,16 @@ def main():
     points = arm_models_to_points.get(arm_model, [])
 
     # Perform movej_p motion
-    robot_controller.movej(points[0])
+    robot_controller.moveJ(points[0])
 
     # Perform movej_p motion
     robot_controller.movej_p(points[1])
 
     # Perform move operations
     robot_controller.moves(points[2])
+
+    # Move to target position [xyz, rx ry rz]
+    robot_controller.movel([0.2, 0, 0.4, 3.141, 0, 0], v=50)
 
     # Disconnect the robot arm
     robot_controller.disconnect()
