@@ -36,8 +36,9 @@ def async_grasp(marching_dist):
 def async_grasp_v2(marching_dist):
     global pump_ctrl, GRASP_OFFSET
     print("===== stepping forward =====")  
-    robot.movel_relative((0, 0, marching_dist + GRASP_OFFSET, 0, 0, 0), \
-                            v=10, r=20, connect=False, frame_type=1,  block=True)
+    fwd_motion = np.eye(4)
+    fwd_motion[2, 3] = marching_dist + GRASP_OFFSET
+    robot.moveL_relative_v2(fwd_motion, v=50)
 
     print("===== closing gripper =====")  
     closeGripper(pump_ctrl)
@@ -45,12 +46,12 @@ def async_grasp_v2(marching_dist):
 
     print("===== rotating =====")  
     q_target_inc = [0, 0, 0, 0, 0, 90 / 180 * np.pi] # 90deg for last joint
-    robot.moveJ_relative(q_target, speed=[2,2,3,5,2,10])
-    time.sleep(3)
+    robot.moveJ_relative(q_target_inc, 100, 1)
 
     print("===== getting back =====")  
-    robot.movel_relative((0, 0, -0.1, 0, 0, 0), \
-                            v=10, r=20, connect=False, frame_type=1,  block=True)
+    bwd_motion = np.eye(4)
+    bwd_motion[2, 3] = -0.1
+    robot.moveL_relative_v2(bwd_motion, v=100)
 
 def infer(algo, img):
     return algo.infer_img(img)

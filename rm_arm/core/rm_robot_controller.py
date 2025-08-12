@@ -1,5 +1,6 @@
 import sys
 import os
+import numpy as np
 from scipy.spatial.transform import Rotation as Rot
 
 # Add the parent directory of src to sys.path
@@ -79,15 +80,6 @@ arm_models_to_points = {
 
 class RobotArmController:
     def __init__(self, ip, port, level=3, mode=2):
-        """
-        Initialize and connect to the robotic arm.
-
-        Args:
-            ip (str): IP address of the robot arm.
-            port (int): Port number.
-            level (int, optional): Connection level. Defaults to 3.
-            mode (int, optional): Thread mode (0: single, 1: dual, 2: triple). Defaults to 2.
-        """
         self.thread_mode = rm_thread_mode_e(mode)
         self.robot = RoboticArm(self.thread_mode)
         self.handle = self.robot.rm_create_robot_arm(ip, port, level)
@@ -99,12 +91,6 @@ class RobotArmController:
             print(f"\nSuccessfully connected to the robot arm: {self.handle.id}\n")
 
     def disconnect(self):
-        """
-        Disconnect from the robot arm.
-
-        Returns:
-            None
-        """
         handle = self.robot.rm_delete_robot_arm()
         if handle == 0:
             print("\nSuccessfully disconnected from the robot arm\n")
@@ -112,81 +98,66 @@ class RobotArmController:
             print("\nFailed to disconnect from the robot arm\n")
 
     def get_arm_model(self):
-        """Get robotic arm mode.
-        """
         res, model = self.robot.rm_get_robot_info()
         if res == 0:
             return model["arm_model"]
         else:
             print("\nFailed to get robot arm model\n")
 
+    def get_arm_software_info(self):
+        software_info = self.robot.rm_get_arm_software_info()
+        if software_info[0] == 0:
+            print("\n================== Arm Software Information ==================")
+            print("Arm Model: ", software_info[1]['product_version'])
+            print("Algorithm Library Version: ", software_info[1]['algorithm_info']['version'])
+            print("Control Layer Software Version: ", software_info[1]['ctrl_info']['version'])
+            print("Dynamics Version: ", software_info[1]['dynamic_info']['model_version'])
+            print("Planning Layer Software Version: ", software_info[1]['plan_info']['version'])
+            print("==============================================================\n")
+        else:
+            print("\nFailed to get arm software information, Error code: ", software_info[0], "\n")
+
     @staticmethod
     def pose_mat2vec(pose_mat):
-        rpy = Rot.from_matrix(pose_mat[0:3,0:3]).as_euler('xyz', degrees=True)
+        rpy = Rot.from_matrix(pose_mat[0:3,0:3]).as_euler('xyz', degrees=False)
         position = pose_mat[0:3, 3]
         
         return  [position[0], position[1], position[2], \
                     rpy[0], rpy[1], rpy[2]]    
 
 
-    def get_joint_state(self, ret):
-        """
-        Perform get current joint in degree.
-
-        Args:
-            None
-        Returns:
-            tuple[int, list[float]]
-            - int: status code of request
-                - 0: success
-                - -1: data send failed
-                - -2: data receive failed
-                - -3: return value parsing failed
-            - list: joint angles, unit: degree
-        """
+    def get_joint_state(self, degrees=False):
         ret, curr_jq = self.robot.rm_get_joint_degree()
         if ret == 0:
-            print("\nget_current_joint_angles succeeded\n")
+            if not degrees:
+                curr_jq = [jq / 180 * np.pi for jq in curr_jq]
             return curr_jq
         else:
             print("\nget_current_joint_angles motion failed, Error code: ", ret, "\n")
             return [] 
 
-    def get_current_state(self, ):
-        # ret, state = self.robot.rm_get_current_arm_state()
-        ret, state = self.robot.rm_get_arm_all_state()
+    def get_current_state(self, fmt: str='xyzrpy'):
+        ret, state = self.robot.rm_get_current_arm_state()
         if ret != 0:
             print("Get current state failed, Error code: ", ret)
             return None
-        print("Current state: ", state)
-        # TODO: parse state data
-        # 转换单位
-        pose_raw = state["pose"]
-        pose_converted = [
-            pose_raw[0] / 1000000,  # x: 0.001mm → m
-            pose_raw[1] / 1000000,  # y: 0.001mm → m
-            pose_raw[2] / 1000000,  # z: 0.001mm → m
-            pose_raw[3] / 1000,    # rx: 0.001rad → rad
-            pose_raw[4] / 1000,    # ry: 0.001rad → rad
-            pose_raw[5] / 1000     # rz: 0.001rad → rad
-        ]
 
-        return True, pose_converted
+        curr_q = [jq / 180 * np.pi for jq in state['joint']]
+        pose_xyzrpy = state['pose']
+        if fmt =='xyzrpy':
+            curr_pose = pose_xyzrpy
+        elif fmt == 'matrix':
+            curr_pose = np.eye(4)
+            curr_pose[:3, :3] = Rot.from_euler('xyz', pose_xyzrpy[3:]).as_matrix()
+            curr_pose[:3, 3] = pose_xyzrpy[0:3]
+        else:
+            print(f'Unsupported fmt: {fmt}, should be \'xyzrpy\' or \'matrix\'')
+            return None, None
+        return curr_q, curr_pose
 
-    def moveJ(self, joint, v=20, r=0, connect=0, block=1):
-        """
-        Perform movej motion.
-
-        Args:
-            joint (list of float): Joint positions.
-            v (float, optional): Speed of the motion. Defaults to 20.
-            connect (int, optional): Trajectory connection flag. Defaults to 0.
-            block (int, optional): Whether the function is blocking (1 for blocking, 0 for non-blocking). Defaults to 1.
-            r (float, optional): Blending radius. Defaults to 0.
-
-        Returns:
-            None
-        """
+    def moveJ(self, joint, v=20, r=0, connect=0, block=1, degrees=False) -> None:
+        if not degrees:
+            joint = [jq * 180 / np.pi for jq in joint]
         movej_result = self.robot.rm_movej(joint, v, r, connect, block)
         if movej_result == 0:
             print("\nmovej motion succeeded\n")
@@ -194,19 +165,6 @@ class RobotArmController:
             print("\nmovej motion failed, Error code: ", movej_result, "\n")
 
     def movej_p(self, pose, v=20, r=0, connect=0, block=1):
-        """
-        Perform movej_p motion.
-
-        Args:
-            pose (list of float): Position [x, y, z, rx, ry, rz].
-            v (float, optional): Speed of the motion. Defaults to 20.
-            connect (int, optional): Trajectory connection flag. Defaults to 0.
-            block (int, optional): Whether the function is blocking (1 for blocking, 0 for non-blocking). Defaults to 1.
-            r (float, optional): Blending radius. Defaults to 0.
-
-        Returns:
-            None
-        """
         movej_p_result = self.robot.rm_movej_p(pose, v, r, connect, block)
         if movej_p_result == 0:
             print("\nmovej_p motion succeeded\n")
@@ -214,18 +172,6 @@ class RobotArmController:
             print("\nmovej_p motion failed, Error code: ", movej_p_result, "\n")
 
     def moves(self, move_positions=None, speed=20, blending_radius=0, block=1):
-        """
-        Perform a sequence of move operations.
-
-        Args:
-            move_positions (list of float, optional): List of positions to move to, each position is [x, y, z, rx, ry, rz].
-            speed (int, optional): Speed of the movement. Defaults to 20.
-            block (int, optional): Whether the function is blocking (1 for blocking, 0 for non-blocking). Defaults to 1.
-            blending_radius (float, optional): Blending radius for the movement. Defaults to 0.
-
-        Returns:
-            None
-        """
         if move_positions is None:
             move_positions = [
                 [-0.3, 0, 0.3, 3.14, 0, 0],
@@ -244,7 +190,7 @@ class RobotArmController:
 
         print("\nmoves operation succeeded\n")
 
-    def movel(self, pose, v=20, r=0, connect=0, block=1):
+    def moveL(self, pose, v=20, r=0, connect=0, block=1):
         """
         Perform movel motion.
 
@@ -263,20 +209,37 @@ class RobotArmController:
             print("\nmovel motion succeeded\n")
         else:
             print("\nmovel motion failed, Error code: ", movel_result, "\n")
+        return movel_result
 
-    def movel_relative(self, pose, v, r, connect, frame_type, block):
+    def moveL_relative(self, pose: list[float],
+                       v: int=20, 
+                       r: int=0, 
+                       connect: int=0, 
+                       frame_type: int=0, 
+                       block: int=1):
         return self.robot.rm_movel_offset(pose, v, r, connect, frame_type, block)
+
+
+    def moveL_relative_v2(self, relative_motion,
+                            v: int=20, 
+                            r: int=0, 
+                            connect: int=0,
+                            block: int=1):
+        _, curr_pose = self.get_current_state(fmt='matrix')
+        target_pose_mat = curr_pose @ relative_motion
+        target_pose_cmd = self.pose_mat2vec(target_pose_mat)
+        return self.moveL(target_pose_cmd, v, r, connect, block)
 
     def servoJ(self, joint: list[float]):
         return self.robot.rm_movej_canfd(joint, False)
 
     def move_to_pose(self, target_pose):
         pose = self.pose_mat2vec(target_pose)
-        return self.movel(pose)
+        return self.moveL(pose)
 
     def moveJ_relative(self, target_q_inc, spd, block):
         curr_q = self.get_joint_state()
-        target_q = curr_q + target_q_inc
+        target_q = [q1 + q2 for q1, q2 in zip(curr_q, target_q_inc)]
         return self.moveJ(target_q, v=spd, block=block)
 
 def main():
@@ -299,7 +262,7 @@ def main():
     robot_controller.moves(points[2])
 
     # Move to target position [xyz, rx ry rz]
-    robot_controller.movel([0.2, 0, 0.4, 3.141, 0, 0], v=50)
+    robot_controller.moveL([0.2, 0, 0.4, 3.141, 0, 0], v=50)
 
     # Disconnect the robot arm
     robot_controller.disconnect()
