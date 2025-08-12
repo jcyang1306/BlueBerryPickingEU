@@ -10,7 +10,7 @@ import time
 class RealSenseController:
     def __init__(self):
         self.intrinsic_mat_ = np.zeros((3, 3))
-        self.distortion_coeff_ = np.zeros(5)
+        self.distortion_coeff_ = np.zeros((5))
         self.pipe_ = None
         
 
@@ -25,8 +25,8 @@ class RealSenseController:
             device = pipeline_profile.get_device()
             device_product_line = str(device.get_info(rs.camera_info.product_line))
 
-            config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
-            config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+            config.enable_stream(rs.stream.depth, 1280, 720, rs.format.z16, 30)
+            config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
 
             # Start streaming
             profile = pipe.start(config)
@@ -52,6 +52,7 @@ class RealSenseController:
 
                 depth_image = np.asanyarray(depth_frame.get_data())
                 color_image = np.asanyarray(color_frame.get_data())
+                depth_uint16_mm = (depth_image * self.depth_scale_).astype(np.uint16)
 
                 depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
 
@@ -82,12 +83,13 @@ class RealSenseController:
             pipe.stop()
 
     def stop_streaming(self):
+        print(f'===== <rs> stop streaming =====')
         self.pipe_.stop()
 
     def get_intrinsics(self):
         print(f'===== get intrinsics =====')
         print(f'intrinsic_mat_: \n{self.intrinsic_mat_}')
-        print(f'distortion_coeff_: \n{self.distortion_coeff_}')
+        print(f'distortion_coeff_: {self.distortion_coeff_}')
         return self.intrinsic_mat_, self.distortion_coeff_
 
     def config_streaming_color(self, w=1280, h=720, fps=30): # d405 not supported, for it only support stereo mode
@@ -117,33 +119,26 @@ class RealSenseController:
         depth_frame = aligned_frames.get_depth_frame()
         color_frame = aligned_frames.get_color_frame()
 
-
         return color_frame, depth_frame
 
     def convert_to_pointcloud(self, color_frame, depth_frame):
+        t0 = time.time()
+
         color_image = np.asanyarray(color_frame.get_data())
-
-        rgb = color_image[...,::-1]
-
-        pc = rs.pointcloud()
-        points = pc.calculate(depth_frame)
-        pc.map_to(color_frame)
-        vertices = np.asanyarray(points.get_vertices(dims=2)) 
-        w = depth_frame.get_width()
-        h = depth_frame.get_height()
-        image_points = np.reshape(vertices, (h, w, 3))
-
+        colors = color_image.reshape(-1, 3) / 255.0  # Normalize colors to [0, 1]
 
         pc = rs.pointcloud()
         points = pc.calculate(depth_frame)
         pc.map_to(color_frame)
-        vertices = np.asanyarray(points.get_vertices(dims=2))
-        w = depth_frame.get_width()
-        image_Points = np.reshape(vertices , (-1,w,3))
+        vertices = np.asanyarray(points.get_vertices()).view(np.float32).reshape(-1, 3)
+        points = vertices
+
+        print(f'rs native pointcloud took {time.time() - t0}s')
 
         point_cloud = o3d.geometry.PointCloud()
-        point_cloud.points = o3d.utility.Vector3dVector(image_Points.reshape(-1,3))
-        point_cloud.colors = o3d.utility.Vector3dVector(rgb.reshape(-1,3) / 255.0)
+        point_cloud.points = o3d.utility.Vector3dVector(points)
+        point_cloud.colors = o3d.utility.Vector3dVector(colors)
+
         return point_cloud
 
     def config_stereo_stream(self, w=1280, h=720, fps=15):
@@ -162,8 +157,8 @@ class RealSenseController:
 
         profile = self.pipe_.start(config)
         depth_sensor = profile.get_device().first_depth_sensor()
-        depth_scale = depth_sensor.get_depth_scale()
-        print("Depth Scale is: " , depth_scale)
+        self.depth_scale_ = depth_sensor.get_depth_scale() * 1000.0 # m to mm
+        print("Depth Scale is: " , self.depth_scale_)
 
         # Get intrinsics
         color_profile = profile.get_stream(rs.stream.color)
@@ -172,6 +167,9 @@ class RealSenseController:
         self.distortion_coeff_ = np.array(intr.coeffs)
 
         self.align_ = rs.align(rs.stream.color)
+
+    def get_dpt_scale(self):
+        return self.depth_scale_
 
     def start_streaming(self):
         try:

@@ -6,6 +6,7 @@ class RobotArm():
     def __init__(self, connect_robot=True):
         if connect_robot == True:
             self.try_connect_robot()
+        print(f'Robot Arm Initialized, realrobot: [{connect_robot}]')
         self.eu_kin_ = eu_arm_kinematics()
 
     def try_connect_robot(self):
@@ -33,18 +34,28 @@ class RobotArm():
     
     def moveJ(self, target_jpos, jerr_thd=0.2, async_exec=True):
         if async_exec:
-            return eu_mov_to_target_jnt_pos(target_jpos, jerr_thd)
+            return eu_mov_to_target_jnt_pos(target_jpos)
         else:
             return moveJ_blk(target_jpos, jerr_thd)
-        
-    def marching(self, marching_dist, speed=[1,1,1,1,1,1]):
+
+    def moveJ_relative(self, jpos_inc, speed=None):
+        q_curr = eu_get_current_joint_positions()
+        q_target = q_curr + jpos_inc
+        if speed is not None:
+            eu_set_joint_velocities(speed)
+        eu_mov_to_target_jnt_pos(q_target)
+
+    def marching(self, marching_dist, speed=None):
         print(f'moving forward with [{marching_dist}]')
-        eu_set_joint_velocities(speed)
+        if speed is not None:
+            eu_set_joint_velocities(speed)
         steps_total = int(np.abs(marching_dist)/EEF_STEP)
         if marching_dist > 0:
             eef_step_mat = eef_step_fwd
         else:
             eef_step_mat = eef_step_bwd
+        if speed is not None:
+            eu_set_joint_velocities([2,2,3,5,2,10])
 
         # offline compute cartesian
         q0 = eu_get_current_joint_positions()
@@ -73,10 +84,10 @@ class RobotArm():
 
         if np.max(np.abs(q_target)) > 3.1: # TODO: fix hardcode
             print('\n===== joint out of range =====')
-        elif np.allclose(target_pose_fk, target_pose_tcp, atol=0.003):
+        elif not np.allclose(target_pose_fk, target_pose_tcp, atol=0.003):
             print(f'\n===== pose not reachable [{retval}]=====')
         else:
-            return self.moveJ(q_target)
+            return self.moveJ(q_target, async_exec=True)
 
     def moveL(self, pose, speed, async_exec=False):
         t0 = time.time()
@@ -108,10 +119,6 @@ class RobotArm():
             else:
                 moveJ_blk(q_waypt, jerr_thd=0.5)
         print(f'time elapsed: {time.time() - t0}')
-
-    def moveJ(self, q_target, async_exec=True):
-        return moveJ_blk(q_target)
-
 
 if __name__ == '__main__':
     robot = RobotArm()
