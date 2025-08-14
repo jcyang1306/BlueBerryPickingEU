@@ -2,35 +2,22 @@ import numpy as np
 import open3d as o3d
 import cv2
 import threading, time
+import sys, os
+import argparse, json
+
+# Add the parent directory of src to sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from dev.rs_d405 import RealSenseController
 from dev.pump_control import PumpControl
-from eu_arm.robot_arm_interface import RobotArm
+from rm_arm.core.rm_robot_controller import RobotArmController
 from utils.data_io import DataRecorder
 from env_cfg import *
 
 # TODO: resolve include path issue
 from sensing_algo import GraspingAlgo
 
-
 np.set_printoptions(precision=7, suppress=True)
-
-def async_grasp(marching_dist):
-    global pump_ctrl, GRASP_OFFSET
-    print("===== stepping forward =====")  
-    robot.marching(marching_dist + GRASP_OFFSET, [1,1,1,1,1,1])
-
-    print("===== closing gripper =====")  
-    closeGripper(pump_ctrl)
-    time.sleep(1)
-
-    print("===== rotating =====")  
-    q_target = [0, 0, 0, 0, 0, 90 / 180 * np.pi]# 90deg for last joint
-    robot.moveJ_relative(q_target, speed=[2,2,3,5,2,10])
-    time.sleep(3)
-
-    print("===== getting back =====")  
-    robot.marching(-0.1, [1,1,1,1,1,1])
 
 # Realman robot version grasp motion
 def async_grasp_v2(marching_dist):
@@ -38,20 +25,20 @@ def async_grasp_v2(marching_dist):
     print("===== stepping forward =====")  
     fwd_motion = np.eye(4)
     fwd_motion[2, 3] = marching_dist + GRASP_OFFSET
-    robot.moveL_relative_v2(fwd_motion, v=50)
+    robot.moveL_relative_v2(fwd_motion, v=10)
 
     print("===== closing gripper =====")  
-    closeGripper(pump_ctrl)
+    # closeGripper(pump_ctrl)
     time.sleep(1)
 
     print("===== rotating =====")  
     q_target_inc = [0, 0, 0, 0, 0, 90 / 180 * np.pi] # 90deg for last joint
-    robot.moveJ_relative(q_target_inc, 100, 1)
+    robot.moveJ_relative(q_target_inc, 20, 1)
 
     print("===== getting back =====")  
     bwd_motion = np.eye(4)
     bwd_motion[2, 3] = -0.1
-    robot.moveL_relative_v2(bwd_motion, v=100)
+    robot.moveL_relative_v2(bwd_motion, v=10)
 
 def infer(algo, img):
     return algo.infer_img(img)
@@ -80,9 +67,11 @@ def click_callback(event, x, y, flags, param):
 		refPt = [(x, y)]
 		refPt_updated = True
 
-def init_all(use_real_robot=True, use_pump=True, fake_camera=False):
-    robot = RobotArm(connect_robot=use_real_robot)
-
+def init_all(use_real_robot=True, use_pump=False, fake_camera=False, checkpoint_path=None):
+    robot = RobotArmController("192.168.1.18", 8080, 3)
+    ret = robot.robot.rm_change_work_frame("Base")
+    robot.get_arm_software_info()
+    
     # Pump init
     if use_pump:
         pump_ctrl = PumpControl()
@@ -92,7 +81,7 @@ def init_all(use_real_robot=True, use_pump=True, fake_camera=False):
     rs_ctrl = RealSenseController()
     rs_ctrl.config_stereo_stream()
     # Vision Algo
-    grasp_algo = GraspingAlgo()
+    grasp_algo = GraspingAlgo(checkpoint_path)
 
     return robot, pump_ctrl, rs_ctrl, grasp_algo
 
@@ -101,11 +90,37 @@ class HiddenBlackboard():
          pass
 
 if __name__ == "__main__":  
-    robot, pump_ctrl, rs_ctrl, grasp_algo = init_all()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", "-c", default='env_cfg.json', help="Path to the config file")
+    args = parser.parse_args()
+
+    # Load configuration from JSON file
+    with open(args.config, 'r') as f:
+        cfg = json.load(f)
+
+    # Loading params
+    H_handeye = np.array(cfg['H_handeye'])
+    detected_obj_pose_viewpoint = np.array(cfg['detected_obj_pose_viewpoint'])
+    sensing_pose_list = np.array(cfg['sensing_pose_list'])
+    sensing_pose_idx = cfg['sensing_pose_idx']
+
+    use_real_robot = cfg['use_real_robot']
+    use_pump = cfg['use_pump']
+    use_real_camera = cfg['use_real_camera']
+
+    save_data_path = cfg["save_data_path"]
+    checkpoint_path = cfg["checkpoint_path"]
+
+    print(f'H_handeye: {H_handeye}')
+    for i in range(len(sensing_pose_list)):
+        print(f'[{i}]th pose: {sensing_pose_list[i]}')
+    
+    robot, pump_ctrl, rs_ctrl, grasp_algo = init_all(use_real_robot, use_pump, use_real_camera, checkpoint_path)
 
     # move to initial pose            
     q_init = sensing_pose_list[sensing_pose_idx]
-    robot.moveJ(q_init)
+    if use_real_robot:
+        robot.moveJ(q_init)
 
     # Visualization
     cv2.namedWindow('test_grasping', cv2.WINDOW_NORMAL)
@@ -114,13 +129,13 @@ if __name__ == "__main__":
 
     ## ================= Global Variables =================
     # EU arm control stuff
-    q_curr, _ = robot.get_current_state()
+    q_curr, _ = robot.get_current_state(fmt='matrix')
     j_idx = 0
     JMOVE_STEP = 0.005
     q_target = q_init
     PRE_GRASP_DIST = 0.05 - 0.005 # mm
-    GRIPPER_LENGTH = 0.135 # mm
-    GRASP_OFFSET = 0.015  
+    GRIPPER_LENGTH = 0.145 # mm
+    GRASP_OFFSET = 0.0275  
     saving_data_idx = 0
     refPt = (int(1280/2), int(720/2)) # center of img
     refPt_updated = False
@@ -147,18 +162,18 @@ if __name__ == "__main__":
             elif key & 0xFF == ord('s'):
                 print("\n===== start inference =====")
                 pc = rs_ctrl.convert_to_pointcloud(color_frame, depth_frame)
-                q_curr, sensing_pose_eef = robot.get_current_state()
+                q_curr, sensing_pose_eef = robot.get_current_state(fmt='matrix')
                 data_io.save_data(color_img, pc, q_curr)
                 refPt_updated = False
 
                 # Segmentation
-                masks, bboxes = infer(grasp_algo, color_img)
+                masks, bboxes, _ = infer(grasp_algo, color_img)
                 if masks is not None and len(masks) == 0:
                             print('>'*15, 'no object detected', '>'*15)
                             continue
                 
                 grasp_poses, grasp_uv = grasp_algo.gen_grasp_pose(color_img, pc, masks)
-                img_vis = cv2.imread('/home/hkclr/AGBot_ws/eu_robot_ws/refactored_eu_arm/tmp/test_img_cups_.png')
+                img_vis = cv2.imread('/home/hkclr/AGBot_ws/V2/BlueBerryPickingEU/tmp/test_img_cups_.png')
                 while not refPt_updated:
                     cv2.imshow('test_grasping', img_vis)
                     key = cv2.waitKey(500)
@@ -180,15 +195,16 @@ if __name__ == "__main__":
 
                 print(f"H_base_to_obj: {H_base_to_obj}")
 
-                if validate_grasp_pose(H_base_to_obj):
-                    detected_obj_pose_viewpoint[:3,3] = obj_pose_vec[:3]
-                    print(f'================detected pose: \n{repr(detected_obj_pose_viewpoint)}\n====================')  
+                # TODO: adjust workspace limit by rm robot ws
+                # if validate_grasp_pose(H_base_to_obj):
+                #     detected_obj_pose_viewpoint[:3,3] = obj_pose_vec[:3]
+                #     print(f'================detected pose: \n{repr(detected_obj_pose_viewpoint)}\n====================')  
 
                 continue
 
             elif key & 0xFF == ord('g'):
                 print("\n go grasping")  
-                q_curr, eef_pose = robot.get_current_state()
+                q_curr, eef_pose = robot.get_current_state(fmt='matrix')
 
                 # pregrasp pose -> relative pose on x-y plane wrt eef
                 eef2obj = H_handeye @ detected_obj_pose_viewpoint 
@@ -211,12 +227,12 @@ if __name__ == "__main__":
                 print(f'H_base_to_obj: \n{repr(H_base_to_obj)}')
                 print(f'grasp_pose: \n{repr(grasp_pose_tcp)}')
 
-                robot.move_to_pose(grasp_pose_tcp)
+                robot.move_to_pose(grasp_pose_tcp, v=10)
                 continue
 
             elif key & 0xFF == ord('f'):
                 print("\n Moving for Re-sensing & Locolization")  
-                q_curr, eef_pose = robot.get_current_state()
+                q_curr, eef_pose = robot.get_current_state(fmt='matrix')
 
                 # pregrasp pose -> relative pose on x-y plane wrt eef
                 eef2obj = H_handeye @ detected_obj_pose_viewpoint 
@@ -235,7 +251,7 @@ if __name__ == "__main__":
                 continue
 
             elif key & 0xFF == ord('t'):
-                t_grasp = threading.Thread(target=async_grasp, args=(marching_dist,))
+                t_grasp = threading.Thread(target=async_grasp_v2, args=(marching_dist,))
                 t_grasp.start()
                 continue
 
@@ -270,23 +286,23 @@ if __name__ == "__main__":
                 continue
 
             elif key & 0xFF == ord('w'):
-                q_target, _ = robot.get_current_state()
+                q_target, _ = robot.get_current_state(fmt='matrix')
                 q_target[3] += JMOVE_STEP * 1.5
                 robot.moveJ(q_target)
                 continue
             elif key & 0xFF == ord('e'):
-                q_target, _ = robot.get_current_state()
+                q_target, _ = robot.get_current_state(fmt='matrix')
                 q_target[3] -= JMOVE_STEP * 1.5
                 robot.moveJ(q_target)
                 continue
 
             elif key & 0xFF == 82: # up 
-                q_target, _ = robot.get_current_state()
+                q_target, _ = robot.get_current_state(fmt='matrix')
                 q_target[j_idx] += JMOVE_STEP * 1.5
                 robot.moveJ(q_target)
                 continue
             elif key & 0xFF == 84: # down
-                q_target, _ = robot.get_current_state()
+                q_target, _ = robot.get_current_state(fmt='matrix')
                 q_target[j_idx] -= JMOVE_STEP * 1.5
                 robot.moveJ(q_target)
                 continue
@@ -298,6 +314,9 @@ if __name__ == "__main__":
                 j_idx = (j_idx + 1) % 6 # 6 DOF
                 print(f"\n===== switch to next joint, Joint [{j_idx+1}] selected =====")  
                 continue
+
+    except:
+        import ipdb; ipdb.set_trace()
 
     finally:
         rs_ctrl.stop_streaming()
