@@ -233,9 +233,9 @@ class RobotArmController:
     def servoJ(self, joint: list[float]):
         return self.robot.rm_movej_canfd(joint, False)
 
-    def move_to_pose(self, target_pose):
+    def move_to_pose(self, target_pose, v=20, r=0, connect=0, block=1):
         pose = self.pose_mat2vec(target_pose)
-        return self.moveL(pose)
+        return self.moveL(pose, v, r, connect, block)
 
     def moveJ_relative(self, target_q_inc, spd, block):
         curr_q = self.get_joint_state()
