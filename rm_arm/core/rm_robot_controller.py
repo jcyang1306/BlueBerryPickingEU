@@ -233,6 +233,9 @@ class RobotArmController:
     def servoJ(self, joint: list[float]):
         return self.robot.rm_movej_canfd(joint, False)
 
+    def servoL(self, pose, follow=False, trajectory_mode=0, radio=0):
+        return self.robot.rm_movep_canfd(pose, follow, trajectory_mode, radio)
+
     def move_to_pose(self, target_pose, v=20, r=0, connect=0, block=1):
         pose = self.pose_mat2vec(target_pose)
         return self.moveL(pose, v, r, connect, block)
