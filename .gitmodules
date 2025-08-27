@@ -1,0 +1,4 @@
+[submodule "sensing_algo"]
+	path = sensing_algo
+	url = https://github.com/HKCLR2021/Blueberry-Picking-UR
+	branch = trt_dev
