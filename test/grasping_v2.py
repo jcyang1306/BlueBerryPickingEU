@@ -186,19 +186,15 @@ if __name__ == "__main__":
                 grasp_idx = GraspingAlgo.get_nearest_inst(grasp_uv, refPt)
                 print(f'finding nearest inst from ref pt: {refPt}/[{grasp_uv[grasp_idx]}] [{grasp_idx}]->{grasp_poses[grasp_idx]}')    
 
-                obj_pose_vec = grasp_poses[grasp_idx][0]
-                # filter by robot workspace 
-                obj_pose = detected_obj_pose_viewpoint 
-                obj_pose[:3,3] = obj_pose_vec[:3]
+                obj_pose = grasp_poses[grasp_idx][0]
                 eef2obj = H_handeye @ obj_pose 
                 H_base_to_obj = sensing_pose_eef @ H_handeye @ obj_pose
-
                 print(f"H_base_to_obj: {H_base_to_obj}")
 
                 # TODO: adjust workspace limit by rm robot ws
-                # if validate_grasp_pose(H_base_to_obj):
-                #     detected_obj_pose_viewpoint[:3,3] = obj_pose_vec[:3]
-                #     print(f'================detected pose: \n{repr(detected_obj_pose_viewpoint)}\n====================')  
+                if validate_grasp_pose(H_base_to_obj):
+                    detected_obj_pose_viewpoint = obj_pose
+                    print(f'================detected pose: \n{repr(detected_obj_pose_viewpoint)}\n====================')  
 
                 continue
 
@@ -207,27 +203,22 @@ if __name__ == "__main__":
                 q_curr, eef_pose = robot.get_current_state(fmt='matrix')
 
                 # pregrasp pose -> relative pose on x-y plane wrt eef
-                eef2obj = H_handeye @ detected_obj_pose_viewpoint 
-                eef2pre_grasp= np.eye(4)                
-                eef2pre_grasp[:3, 3] = eef2obj[:3, 3]
-                # handle z offset
-                if eef2obj[2, 3] > PRE_GRASP_DIST + GRIPPER_LENGTH:
-                    marching_dist = PRE_GRASP_DIST
-                    eef2pre_grasp[2, 3] = eef2obj[2, 3] - GRIPPER_LENGTH - PRE_GRASP_DIST
-                else:
-                    marching_dist = eef2obj[2, 3] - GRIPPER_LENGTH
-                    eef2pre_grasp[2, 3] = 0
-                print(f'marching_dist: {eef2obj[2, 3] - PRE_GRASP_DIST - GRIPPER_LENGTH} | pre_grasp_dist: [{eef2pre_grasp[2, 3]}]')
-                print(f'eef2pre_grasp: \n{repr(eef2pre_grasp)}')
+                H_eef2obj = H_handeye @ detected_obj_pose_viewpoint
 
-                H_base_to_obj = eef_pose @ eef2pre_grasp
-                grasp_pose_tcp = H_base_to_obj
+                # handle z dist, if projected_dist-GRIPPER_LENGTH > PRE_GRASP_DIST, use PRE_GRASP_DIST
+                H_obj2eef = np.linalg.inv(H_eef2obj)             
+                H_obj2pre_grasp = np.eye(4)
+                H_obj2pre_grasp[2, 3] = min(H_obj2eef[2, 3], PRE_GRASP_DIST + GRIPPER_LENGTH) # projection dist along z axis in obj frame
+                marching_dist = H_obj2pre_grasp[2, 3] - GRIPPER_LENGTH # TODO: check if marching dist is valid (positive)
+
+                H_base2pre_grasp = eef_pose @ H_eef2obj @ H_obj2pre_grasp
 
                 print(f'eef_pose: \n{repr(eef_pose)}')
-                print(f'H_base_to_obj: \n{repr(H_base_to_obj)}')
-                print(f'grasp_pose: \n{repr(grasp_pose_tcp)}')
+                print(f'H_obj2pre_grasp: \n{repr(H_obj2pre_grasp)}')
+                print(f'H_base2pre_grasp: \n{repr(H_base2pre_grasp)}')
 
-                robot.move_to_pose(grasp_pose_tcp, v=10)
+                pre_grasp_pose = H_base2pre_grasp
+                robot.move_to_pose(pre_grasp_pose, v=10)
                 continue
 
             elif key & 0xFF == ord('f'):
@@ -235,19 +226,17 @@ if __name__ == "__main__":
                 q_curr, eef_pose = robot.get_current_state(fmt='matrix')
 
                 # pregrasp pose -> relative pose on x-y plane wrt eef
-                eef2obj = H_handeye @ detected_obj_pose_viewpoint 
-                eef2pre_grasp= np.eye(4)                
-                eef2pre_grasp[:3, 3] = eef2obj[:3, 3]
-                eef2pre_grasp[1, 3] -= 0.015
-                # handle z offset
-                if eef2obj[2, 3] > PRE_GRASP_DIST + GRIPPER_LENGTH:
-                    eef2pre_grasp[2, 3] = eef2obj[2, 3] - GRIPPER_LENGTH - PRE_GRASP_DIST
-                else:
-                    eef2pre_grasp[2, 3] = 0
+                H_eef2obj = H_handeye @ detected_obj_pose_viewpoint 
 
-                H_base_to_obj = eef_pose @ eef2pre_grasp
-                grasp_pose_tcp = H_base_to_obj
-                robot.move_to_pose(grasp_pose_tcp)
+                # handle z dist, if projected_dist-GRIPPER_LENGTH > PRE_GRASP_DIST, use PRE_GRASP_DIST
+                H_obj2eef = np.linalg.inv(H_eef2obj)             
+                H_obj2relocolization = np.eye(4)
+                H_obj2relocolization[2, 3] = min(H_obj2eef[2, 3], PRE_GRASP_DIST + GRIPPER_LENGTH) # projection dist along z axis in obj frame
+                H_obj2relocolization[1, 3] -= 0.015 # TODO: test if add offset in eef frame is better
+
+                H_base_to_relocolization = eef_pose @ H_eef2obj @ H_obj2relocolization
+                relocolization_pose = H_base_to_relocolization
+                robot.move_to_pose(relocolization_pose)
                 continue
 
             elif key & 0xFF == ord('t'):
