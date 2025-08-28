@@ -25,7 +25,7 @@ def async_grasp_v2(marching_dist):
     print("===== stepping forward =====")  
     fwd_motion = np.eye(4)
     fwd_motion[2, 3] = marching_dist + GRASP_OFFSET
-    robot.moveL_relative_v2(fwd_motion, v=10)
+    robot1.moveL_relative_v2(fwd_motion, v=30)
 
     print("===== closing gripper =====")  
     # closeGripper(pump_ctrl)
@@ -33,12 +33,12 @@ def async_grasp_v2(marching_dist):
 
     print("===== rotating =====")  
     q_target_inc = [0, 0, 0, 0, 0, 90 / 180 * np.pi] # 90deg for last joint
-    robot.moveJ_relative(q_target_inc, 20, 1)
+    robot1.moveJ_relative(q_target_inc, 50, 1)
 
     print("===== getting back =====")  
     bwd_motion = np.eye(4)
     bwd_motion[2, 3] = -0.1
-    robot.moveL_relative_v2(bwd_motion, v=10)
+    robot1.moveL_relative_v2(bwd_motion, v=30)
 
 def infer(algo, img):
     return algo.infer_img(img)
@@ -67,10 +67,13 @@ def click_callback(event, x, y, flags, param):
 		refPt = [(x, y)]
 		refPt_updated = True
 
-def init_all(use_real_robot=True, use_pump=False, fake_camera=False, checkpoint_path=None):
-    robot = RobotArmController("192.168.1.18", 8080, 3)
-    ret = robot.robot.rm_change_work_frame("Base")
-    robot.get_arm_software_info()
+def init_all(use_real_robot=True, use_pump=True, fake_camera=False, checkpoint_path=None):
+    robot1 = RobotArmController("192.168.1.101", 8080, 3, 2)
+    robot2 = RobotArmController("192.168.1.102", 8080, 3)
+    
+    # TODO: set robot2  
+    ret = robot1.robot.rm_change_work_frame("Base")
+    robot1.get_arm_software_info()
     
     # Pump init
     if use_pump:
@@ -83,7 +86,7 @@ def init_all(use_real_robot=True, use_pump=False, fake_camera=False, checkpoint_
     # Vision Algo
     grasp_algo = GraspingAlgo(checkpoint_path)
 
-    return robot, pump_ctrl, rs_ctrl, grasp_algo
+    return robot1, robot2, pump_ctrl, rs_ctrl, grasp_algo
 
 class HiddenBlackboard():
     def __init__(self):
@@ -115,12 +118,17 @@ if __name__ == "__main__":
     for i in range(len(sensing_pose_list)):
         print(f'[{i}]th pose: {sensing_pose_list[i]}')
     
-    robot, pump_ctrl, rs_ctrl, grasp_algo = init_all(use_real_robot, use_pump, use_real_camera, checkpoint_path)
+    robot1, robot2, pump_ctrl, rs_ctrl, grasp_algo = init_all(use_real_robot, 
+                                                              use_pump, 
+                                                              use_real_camera, 
+                                                              checkpoint_path)
 
     # move to initial pose            
     q_init = sensing_pose_list[sensing_pose_idx]
+    side_arm_q_init = [-1.056,104.073,-175.102,-3.011,-16.015,117.023]
     if use_real_robot:
-        robot.moveJ(q_init)
+        robot1.moveJ(q_init, v=20, block=False)
+        robot2.moveJ(side_arm_q_init, v=20, block=False, degrees=True)
 
     # Visualization
     cv2.namedWindow('test_grasping', cv2.WINDOW_NORMAL)
@@ -129,7 +137,7 @@ if __name__ == "__main__":
 
     ## ================= Global Variables =================
     # EU arm control stuff
-    q_curr, _ = robot.get_current_state(fmt='matrix')
+    q_curr, _ = robot1.get_current_state(fmt='matrix')
     j_idx = 0
     JMOVE_STEP = 0.005
     q_target = q_init
@@ -162,7 +170,7 @@ if __name__ == "__main__":
             elif key & 0xFF == ord('s'):
                 print("\n===== start inference =====")
                 pc = rs_ctrl.convert_to_pointcloud(color_frame, depth_frame)
-                q_curr, sensing_pose_eef = robot.get_current_state(fmt='matrix')
+                q_curr, sensing_pose_eef = robot1.get_current_state(fmt='matrix')
                 data_io.save_data(color_img, pc, q_curr)
                 refPt_updated = False
 
@@ -204,7 +212,7 @@ if __name__ == "__main__":
 
             elif key & 0xFF == ord('g'):
                 print("\n go grasping")  
-                q_curr, eef_pose = robot.get_current_state(fmt='matrix')
+                q_curr, eef_pose = robot1.get_current_state(fmt='matrix')
 
                 # pregrasp pose -> relative pose on x-y plane wrt eef
                 eef2obj = H_handeye @ detected_obj_pose_viewpoint 
@@ -227,12 +235,12 @@ if __name__ == "__main__":
                 print(f'H_base_to_obj: \n{repr(H_base_to_obj)}')
                 print(f'grasp_pose: \n{repr(grasp_pose_tcp)}')
 
-                robot.move_to_pose(grasp_pose_tcp, v=10)
+                robot1.move_to_pose(grasp_pose_tcp, v=30)
                 continue
 
             elif key & 0xFF == ord('f'):
-                print("\n Moving for Re-sensing & Locolization")  
-                q_curr, eef_pose = robot.get_current_state(fmt='matrix')
+                print("\n ")  
+                q_curr, eef_pose = robot1.get_current_state(fmt='matrix')
 
                 # pregrasp pose -> relative pose on x-y plane wrt eef
                 eef2obj = H_handeye @ detected_obj_pose_viewpoint 
@@ -247,7 +255,7 @@ if __name__ == "__main__":
 
                 H_base_to_obj = eef_pose @ eef2pre_grasp
                 grasp_pose_tcp = H_base_to_obj
-                robot.move_to_pose(grasp_pose_tcp)
+                robot1.move_to_pose(grasp_pose_tcp, v=10)
                 continue
 
             elif key & 0xFF == ord('t'):
@@ -261,7 +269,7 @@ if __name__ == "__main__":
                 sensing_pose = sensing_pose_list[idx]
                 q_init = sensing_pose
                 print(f'Moving to {idx+1}th sensing pose [{sensing_pose}]......\n')
-                robot.moveJ(sensing_pose, async_exec=True)
+                robot1.moveJ(sensing_pose, async_exec=True)
 
             elif key & 0xFF == ord('v'):
                 print("\n===== closing gripper =====")  
@@ -274,37 +282,50 @@ if __name__ == "__main__":
                 continue
 
             elif key & 0xFF == ord('i'):
-                # q_init = np.array([-0.04506, -0.20009,  1.14981,  0.04487,  1.57482,  0.19491])
-                robot.moveJ(q_init)
+                q_set = np.array([-1.18703, 0.64249, -2.27585, -0.02076, -0.42116, 3.04271])
+                robot2.moveJ(side_arm_q_init, v=20, block=False, degrees=True)
+                robot1.moveJ(q_set)
                 sensing_pose_idx = 0
                 print(f'clicked xy: {refPt}')
                 continue
-
+ 
             elif key & 0xFF == ord('p'):
-                q_place = np.array([ 0.2346032, -0.8393921, -1.8604493,  0.077659 , -2.1227418, -1.5630305])
-                robot.moveJ(q_place)
+                q_arm1_place = [-47.65299987792969, 24.76799964904785, -121.1259994506836, -1.1610000133514404, -62.19300079345703, 174.33599853515625]
+                q_arm2_carry_obj = [70.20800018310547, 54.448001861572266, -160.46600341796875, -1.9869999885559082, 15.84000015258789, 117.02400207519531]
+                robot1.moveJ(q_arm1_place, v=20, block=False, degrees=True)
+                robot2.moveJ(q_arm2_carry_obj, v=30, block=True, degrees=True)
+                
+                time.sleep(0.5)
+                # TODO: wait for motion done, add trajectory execution monitor
+                # import ipdb; ipdb.set_trace()
+                
+                q_arm2_place = [-4.380, 88.622,-155.187,-2.607,-36.824, 117.026]
+                robot2.moveJ(q_arm2_place, v=30, block=True, degrees=True)
+                                
+                q_target_inc = [0, 0, 0, 0, 0, -150 / 180 * np.pi] # 150 deg for last joint
+                robot2.moveJ_relative(q_target_inc, 50, 1)
                 continue
 
             elif key & 0xFF == ord('w'):
-                q_target, _ = robot.get_current_state(fmt='matrix')
+                q_target, _ = robot1.get_current_state(fmt='matrix')
                 q_target[3] += JMOVE_STEP * 1.5
-                robot.moveJ(q_target)
+                robot1.moveJ(q_target)
                 continue
             elif key & 0xFF == ord('e'):
-                q_target, _ = robot.get_current_state(fmt='matrix')
+                q_target, _ = robot1.get_current_state(fmt='matrix')
                 q_target[3] -= JMOVE_STEP * 1.5
-                robot.moveJ(q_target)
+                robot1.moveJ(q_target)
                 continue
 
             elif key & 0xFF == 82: # up 
-                q_target, _ = robot.get_current_state(fmt='matrix')
+                q_target, _ = robot1.get_current_state(fmt='matrix')
                 q_target[j_idx] += JMOVE_STEP * 1.5
-                robot.moveJ(q_target)
+                robot1.moveJ(q_target)
                 continue
             elif key & 0xFF == 84: # down
-                q_target, _ = robot.get_current_state(fmt='matrix')
+                q_target, _ = robot1.get_current_state(fmt='matrix')
                 q_target[j_idx] -= JMOVE_STEP * 1.5
-                robot.moveJ(q_target)
+                robot1.moveJ(q_target)
                 continue
             elif key & 0xFF == 81: # left 
                 j_idx = (j_idx - 1) % 6 # 6 DOF

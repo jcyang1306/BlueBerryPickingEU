@@ -1,6 +1,7 @@
 import sys
 import os
 import numpy as np
+import time
 from scipy.spatial.transform import Rotation as Rot
 
 # Add the parent directory of src to sys.path
@@ -79,16 +80,20 @@ arm_models_to_points = {
 }
 
 class RobotArmController:
-    def __init__(self, ip, port, level=3, mode=2):
-        self.thread_mode = rm_thread_mode_e(mode)
-        self.robot = RoboticArm(self.thread_mode)
+    def __init__(self, ip, port, level=3, mode=None):
+        if mode is not None:
+            self.thread_mode = rm_thread_mode_e(mode)
+            self.robot = RoboticArm(self.thread_mode)
+        else:
+            self.robot = RoboticArm()
+            
         self.handle = self.robot.rm_create_robot_arm(ip, port, level)
 
         if self.handle.id == -1:
-            print("\nFailed to connect to the robot arm\n")
+            print("Failed to connect to the robot arm")
             exit(1)
         else:
-            print(f"\nSuccessfully connected to the robot arm: {self.handle.id}\n")
+            print(f"Successfully connected to the robot arm: [{self.handle.id}]")
 
     def disconnect(self):
         handle = self.robot.rm_delete_robot_arm()
